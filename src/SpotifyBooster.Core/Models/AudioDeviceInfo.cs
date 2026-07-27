@@ -14,7 +14,11 @@ public sealed record AudioDeviceInfo(
     int SampleRate,
     int Channels,
     int BitsPerSample,
-    bool IsLikelyVirtual)
+    bool IsLikelyVirtual,
+    bool IsActive = true,
+    string StateDescription = "Actif")
 {
-    public string FormatDescription => $"{SampleRate:N0} Hz · {Channels} ch · {BitsPerSample} bit";
+    public string FormatDescription => SampleRate > 0 && Channels > 0
+        ? $"{SampleRate:N0} Hz · {Channels} ch · {BitsPerSample} bit"
+        : "Format indisponible";
 }

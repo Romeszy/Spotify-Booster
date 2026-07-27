@@ -1,75 +1,148 @@
 # Installation et routage
 
-## Important
+## Prérequis
 
-Spotify Booster ne fournit aucun pilote. Téléchargez et installez vous-même un câble audio virtuel compatible depuis son éditeur, après avoir vérifié sa licence, sa provenance et sa compatibilité Windows.
+- Windows 10 version 2004 ou ultérieure, ou Windows 11 ;
+- Spotify Desktop ;
+- un câble audio virtuel compatible installé séparément ;
+- Desktop Runtime .NET 8 pour un paquet framework-dependent.
 
-Le MVP traite **tout** ce qui entre dans la source virtuelle sélectionnée. Pour isoler Spotify, ne routez aucune autre application vers cette même source.
+Spotify Booster ne fournit aucun pilote, ne demande aucun privilège administrateur et ne configure pas le routage à votre place.
 
-## Construire l’application
+.NET 8 atteint sa fin de support le 10 novembre 2026. Un paquet public maintenu après cette date devra migrer vers une version .NET prise en charge ou documenter explicitement son exception.
+
+## Construire depuis les sources
 
 Depuis la racine :
 
 ```powershell
-& ".\.dotnet\dotnet.exe" restore .\SpotifyBooster.sln
-& ".\.dotnet\dotnet.exe" build .\SpotifyBooster.sln --configuration Release
+& ".\.dotnet\dotnet.exe" restore .\SpotifyBooster.sln --locked-mode
+& ".\.dotnet\dotnet.exe" build .\SpotifyBooster.sln --configuration Release --no-restore
 ```
 
-Le binaire framework-dependent est généré sous :
+Le build de développement se trouve sous :
 
 ```text
 src\SpotifyBooster.App\bin\Release\net8.0-windows10.0.19041.0\
 ```
 
-Il n’existe pas encore d’installateur signé ni de publication self-contained. Le Desktop Runtime .NET 8 est donc requis sur une autre machine.
+Pour le portable self-contained et l’installateur NSIS utilisateur, consultez [PACKAGING.md](PACKAGING.md). NSIS 3.12 produit les deux artefacts depuis un commit propre. Ils restent non signés ; le rapport de provenance, les résultats TRX et les hashes de la construction courante se trouvent sous `artifacts`.
 
-## Première configuration
+## Installer le câble virtuel
 
-Les câbles virtuels exposent généralement deux noms complémentaires :
+Utilisez uniquement le site de l’éditeur du câble. L’assistant ouvre la page officielle VB-Audio dans le navigateur, mais ne lance aucun téléchargement.
 
-- un endpoint de **rendu**, choisi comme sortie de Spotify dans Windows ;
-- un endpoint de **capture**, choisi comme source dans Spotify Booster.
+Pour VB-CABLE :
 
-Avec certains pilotes, ces noms ressemblent à `CABLE Input` et `CABLE Output`. Suivez toujours la documentation du fournisseur : le mot « Input » ou « Output » peut décrire le côté du câble et non le sens affiché par l’application.
+- Spotify envoie son son vers le périphérique de rendu **CABLE Input** ;
+- Spotify Booster capture le périphérique **CABLE Output** ;
+- Spotify Booster renvoie ensuite le son vers la sortie physique.
 
-1. Installez séparément un câble audio virtuel compatible.
-2. Lancez Spotify et démarrez une piste à volume faible.
+Voir [VB_CABLE_SETUP.md](VB_CABLE_SETUP.md) pour la procédure détaillée.
+
+## Assistant de première configuration
+
+L’assistant comporte sept étapes :
+
+1. comprendre le chemin audio ;
+2. installer VB-CABLE séparément ;
+3. vérifier les deux côtés du câble ;
+4. router uniquement Spotify dans le mélangeur Windows ;
+5. sélectionner la source virtuelle et la sortie physique ;
+6. tester à `0 dB` en mode Protégé, y compris la panique ;
+7. consulter le dépannage et terminer.
+
+Le bouton du mélangeur ouvre `ms-settings:apps-volume`. Le bouton Son ouvre `ms-settings:sound`. L’application ne change aucun réglage Windows silencieusement.
+
+À la fin de l’assistant, les réglages audio reviennent à :
+
+- mode Protégé ;
+- gain principal `0 dB` ;
+- gain de sortie `0 dB` ;
+- compresseur désactivé ;
+- soft clipper actif ;
+- limiteur actif.
+
+## Route manuelle
+
+1. Baissez le volume physique du casque ou des enceintes.
+2. Lancez Spotify et une piste à faible niveau.
 3. Ouvrez **Paramètres Windows → Système → Son → Mélangeur de volume**.
-4. Dans la ligne Spotify, choisissez l’endpoint de rendu du câble virtuel comme périphérique de sortie.
-5. Laissez les jeux, Discord, le navigateur et les sons système sur leurs périphériques habituels.
-6. Ouvrez Spotify Booster et cliquez sur **Actualiser**.
-7. Dans **Source virtuelle**, choisissez l’endpoint de capture correspondant au câble.
-8. Dans **Sortie physique**, choisissez le casque ou les enceintes.
-9. Laissez le gain à **100 %**, puis activez le traitement.
-10. Vérifiez que l’indicateur passe à **Signal reçu** et que les deux vu-mètres réagissent.
-11. Augmentez lentement le gain.
+4. Choisissez **CABLE Input** comme sortie de Spotify.
+5. Gardez jeux, navigateur, Discord et sons système sur leurs sorties habituelles.
+6. Dans Spotify Booster, cliquez sur **Actualiser**.
+7. Choisissez **CABLE Output** comme source virtuelle.
+8. Choisissez votre casque ou vos enceintes comme sortie physique.
+9. Activez le moteur à `0 dB` en mode Protégé.
+10. Vérifiez **Signal reçu**, les vu-mètres et l’absence de boucle.
+11. Augmentez lentement, par petits pas.
 
-Le bouton de l’assistant ouvre uniquement l’URI Windows fixe `ms-settings:apps-volume`. Il ne modifie aucun réglage à la place de l’utilisateur.
+La route est refusée si :
 
-Par sécurité, ce MVP refuse une source qui n’est pas reconnue comme virtuelle et refuse toute sortie reconnue comme virtuelle. Les noms courants contenant `Virtual`, `Cable`, `VB-Audio`, `VoiceMeeter`, `Loopback` ou `Streaming` sont reconnus. Un pilote au nom inhabituel peut donc être bloqué jusqu’à l’ajout explicite de sa famille ; il n’existe pas de contournement « expert » à 500 % dans cette version.
+- la source n’est pas un endpoint de capture mono/stéréo reconnu comme virtuel ;
+- la sortie n’est pas un endpoint de rendu stéréo ;
+- source et sortie sont identiques ;
+- la sortie semble virtuelle ;
+- les noms indiquent une famille susceptible de créer une boucle.
+
+Cette détection est heuristique. Un câble compatible au nom inhabituel peut être refusé.
+
+## Tray, fermeture et démarrage
+
+Le comportement par défaut du bouton Fermer est **MinimizeToTray**. La fenêtre disparaît, mais l’application et le moteur peuvent rester actifs. Double-cliquez sur l’icône pour restaurer la fenêtre, ou choisissez **Quitter** dans son menu.
+
+L’option **Démarrer avec Windows** ajoute une valeur pour l’utilisateur courant :
+
+```text
+HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+```
+
+La commande enregistrée utilise l’exécutable courant avec `--minimized`. Déplacer ou renommer l’application peut invalider cette entrée ; désactivez puis réactivez l’option depuis le nouvel emplacement.
+
+**Activer automatiquement le traitement** ne démarre le moteur que si :
+
+- l’assistant a été terminé ;
+- les endpoints sauvegardés sont retrouvés ;
+- la route passe la validation.
+
+## Raccourcis globaux
+
+Ils sont désactivés par défaut. Les valeurs V2 par défaut sont :
+
+| Action | Raccourci |
+|---|---|
+| Gain +1 dB | `Ctrl+Alt+Up` |
+| Gain −1 dB | `Ctrl+Alt+Down` |
+| Activer/arrêter le moteur | `Ctrl+Alt+B` |
+| Panique à 0 dB | `Ctrl+Alt+0` |
+| Activer/désactiver Bass Boost | `Ctrl+Alt+G` |
+| Masquer/restaurer la fenêtre | `Ctrl+Alt+S` |
+
+Si une combinaison est déjà réservée, les autres raccourcis restent utilisables et l’échec apparaît dans les notifications/diagnostics.
 
 ## Test manuel minimal
 
-1. Baissez le volume physique du casque/enceintes.
-2. Vérifiez qu’aucune autre application ne cible le câble virtuel.
-3. Démarrez Spotify Booster à 100 %, Bass Boost +3 dB, limiteur actif.
-4. Jouez une piste connue et vérifiez l’absence de boucle/écho.
-5. Comparez 100 %, 150 %, puis 200 %.
-6. Activez le bouton panique et vérifiez le retour immédiat à 100 %.
-7. Débranchez/rebranchez la sortie et observez `DeviceLost`, puis la récupération.
-8. Testez 44,1 kHz et 48 kHz si le câble permet de choisir son format.
-9. Laissez fonctionner 30 à 60 minutes et relevez underruns/overruns.
+1. Vérifiez que seul Spotify cible le câble.
+2. Démarrez à `0 dB`, mode Protégé, soft clipper et limiteur actifs.
+3. Confirmez l’absence d’écho ou de feedback.
+4. Testez `+3 dB`, puis `+6 dB`.
+5. Utilisez la panique et vérifiez le retour rapide à `0 dB`.
+6. Arrêtez le moteur avant de changer de périphérique.
+7. Débranchez/rebranchez la sortie et observez la récupération.
+8. Testez 44,1 et 48 kHz si le pilote le permet.
+9. Exécutez 30 à 60 minutes et relevez underruns, overruns et charge DSP.
 
-N’effectuez pas le premier test à 300–500 %.
+N’utilisez pas Expert brut pour le premier test.
 
-## Compatibilité
+## Désinstallation
 
-- Windows 10/11, WASAPI partagé ;
-- Spotify Desktop classique et Microsoft Store détectés par nom de processus ;
-- mono/stéréo en entrée ;
-- sortie configurée en stéréo ;
-- PCM ou IEEE float ;
-- 44,1/48 kHz testés hors ligne ;
-- sorties Bluetooth possibles, avec latence supplémentaire.
+Spotify Booster n’installe aucun service ou pilote. Pour retirer une copie portable :
 
-Les modes exclusifs d’une autre application peuvent rendre un endpoint indisponible. Le MVP n’essaie pas de contourner ce verrouillage.
+1. quittez réellement l’application depuis le tray ;
+2. désactivez **Démarrer avec Windows** ;
+3. supprimez le dossier de l’application ;
+4. supprimez facultativement `%LOCALAPPDATA%\SpotifyBooster`.
+
+Le câble virtuel est indépendant. Désinstallez-le selon les instructions de son éditeur.
+
+L’installateur NSIS généré installe par utilisateur sous `%LOCALAPPDATA%\Programs\Spotify Booster` et fournit `Uninstall.exe`. Il propose de conserver ou supprimer les réglages/logs lors d’une désinstallation interactive. Le cycle complet installation/désinstallation reste à valider sur une machine propre avant diffusion.

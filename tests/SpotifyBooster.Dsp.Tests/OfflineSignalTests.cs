@@ -67,11 +67,14 @@ public sealed class OfflineSignalTests
     public void ProfilesExposeDistinctSafeSettings()
     {
         Assert.True(DspSettings.DeepBass.LowShelfGainDecibels > DspSettings.Balanced.LowShelfGainDecibels);
-        Assert.True(DspSettings.Punch.CompressorRatio > DspSettings.Balanced.CompressorRatio);
+        Assert.True(DspSettings.Punch.LowShelfGainDecibels > DspSettings.Balanced.LowShelfGainDecibels);
+        Assert.NotEqual(DspSettings.Punch.LowShelfSlope, DspSettings.DeepBass.LowShelfSlope);
         Assert.All(Enum.GetValues<DspProfile>(), profile =>
         {
             DspSettings settings = DspSettings.ForProfile(profile);
-            Assert.InRange(settings.GainPercent, 100f, 500f);
+            Assert.InRange(settings.MainGainDecibels, 0f, 30f);
+            Assert.InRange(settings.LowShelfFrequencyHz, 35f, 200f);
+            Assert.InRange(settings.LowShelfGainDecibels, 0f, 18f);
             Assert.True(settings.LimiterEnabled);
             Assert.Equal(-1f, settings.LimiterCeilingDecibels);
         });

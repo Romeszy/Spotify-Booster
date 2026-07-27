@@ -1,34 +1,32 @@
 # Architecture
 
-## But et frontière du MVP
+## Frontière du produit
 
-Le MVP isole Spotify par **routage Windows explicite** vers un endpoint virtuel. La détection du processus Spotify n’est qu’un signal d’interface. Elle ne constitue jamais une preuve sur l’origine du son.
+Spotify Booster isole Spotify par routage Windows manuel vers un endpoint virtuel. La détection du processus Spotify renseigne l’interface ; elle ne prouve jamais l’origine du signal audio.
 
 ```text
 Spotify Desktop
-  → endpoint de rendu du câble virtuel (choisi manuellement dans Windows)
+  → endpoint de rendu du câble virtuel
   → endpoint de capture correspondant
   → SpotifyBooster.Audio
   → SpotifyBooster.Dsp
   → endpoint de rendu physique
 ```
 
-L’application ne change ni le volume principal Windows, ni le volume de session Spotify, ni le périphérique par défaut.
+L’application ne change ni le périphérique Windows par défaut, ni le volume principal, ni le volume de session Spotify.
 
 ## Projets
 
 | Projet | Cible | Responsabilité |
 |---|---|---|
-| `SpotifyBooster.App` | `net8.0-windows10.0.19041.0` | WPF, MVVM, navigation, composition DI et passage vers le Dispatcher |
-| `SpotifyBooster.Core` | `net8.0` | contrats, modèles, réglages versionnés, validation et état global |
-| `SpotifyBooster.Audio` | `net8.0-windows10.0.19041.0` | adaptateurs NAudio/WASAPI, formats, tampon, resampling et cycle moteur |
-| `SpotifyBooster.Infrastructure` | `net8.0-windows10.0.19041.0` | persistance JSON, processus Spotify, logs, diagnostic et intégration Windows |
-| `SpotifyBooster.Dsp` | `net8.0` | algorithmes DSP purs, sans WPF ni NAudio |
-| `SpotifyBooster.Core.Tests` | Windows/.NET 8 | validation, persistance, diagnostic et détection |
-| `SpotifyBooster.Dsp.Tests` | `.NET 8` | DSP, signaux hors ligne et non-allocation |
-| `SpotifyBooster.Audio.Tests` | Windows/.NET 8 | garde-fous de route, tampon, formats, resampling et énumération |
-
-## Dépendances
+| `SpotifyBooster.App` | `net8.0-windows10.0.19041.0` | WPF, MVVM, navigation, assistant, tray, raccourcis et composition DI |
+| `SpotifyBooster.Core` | `net8.0` | contrats, modèles, réglages V2, validation et état global |
+| `SpotifyBooster.Audio` | `net8.0-windows10.0.19041.0` | NAudio/WASAPI, endpoints, tampon, formats, resampling et cycle du moteur |
+| `SpotifyBooster.Infrastructure` | `net8.0-windows10.0.19041.0` | JSON, migration V1, logs, diagnostic, processus Spotify, registre et URI Windows |
+| `SpotifyBooster.Dsp` | `net8.0` | DSP pur, sans dépendance WPF ou NAudio |
+| `SpotifyBooster.Core.Tests` | Windows/.NET 8 | réglages, migration, persistance, diagnostic, logs et intégration Windows |
+| `SpotifyBooster.Dsp.Tests` | `.NET 8` | conversions, filtres, dynamique, pipeline et signaux hors ligne |
+| `SpotifyBooster.Audio.Tests` | Windows/.NET 8 | route, formats, tampon, mapping DSP, récupération et énumération |
 
 ```text
 App
@@ -38,80 +36,123 @@ App
  └── Dsp
 ```
 
-Les types NAudio ne traversent pas les contrats de `Core`. `IAudioEngine` et `IAudioDeviceService` sont les frontières remplaçables. Une implémentation APO ou propriétaire ultérieure pourra donc remplacer le moteur WASAPI sans déplacer la logique WPF, les réglages ou le DSP.
+Les types NAudio ne traversent pas les contrats de `Core`. `IAudioEngine` et `IAudioDeviceService` définissent la frontière audio remplaçable.
+
+## Pipeline DSP
+
+```text
+DC blocker
+  → gain principal lissé
+  → low-shelf Bass Boost
+  → égaliseur low/mid/high
+  → compresseur optionnel
+  → soft clipper optionnel
+  → limiteur optionnel
+  → gain de sortie lissé
+```
+
+Le décibel est la valeur canonique. Le pourcentage linéaire affiché est dérivé avec `10^(dB/20) × 100`.
+
+Les trois modes sont des choix explicites :
+
+| Mode | Gain principal | Comportement lors de la sélection |
+|---|---:|---|
+| Protégé | `0 à +14 dB` | force soft clipper et limiteur actifs |
+| Direct | `0 à +14 dB` | désactive compresseur, soft clipper et limiteur |
+| Expert brut | `0 dB` au plafond configuré, `+1000 dB` par défaut | exige un acquittement initial et désactive les trois étages dynamiques |
+
+Après le changement de mode, Direct et Expert brut permettent d’activer manuellement les étages souhaités. Le plafond Expert est configurable de `+25 à +1000 dB` ; `+1000 dB` est aussi la borne architecturale et la valeur livrée. Les modes Protégé et Direct restent bornés à `+14 dB`.
+
+Le gain principal est lissé en dB et converti en facteur linéaire en double précision. À l’ouverture ou à la reconstruction du pipeline, un gain mémorisé non nul est rampé depuis `0 dB` jusqu’à sa cible, sans modifier cette cible. Le produit est borné à `±64` avant de revenir dans le pipeline float32. Cette frontière conserve des valeurs finies jusqu’à `+1000 dB`, mais un gain aussi élevé produit essentiellement de la saturation ou de la limitation.
+
+Il n’existe aucune boucle de réduction persistante du gain. Le lissage rejoint la valeur demandée ; seule la commande panique remet explicitement le gain principal et le gain de sortie à `0 dB`.
 
 ## Contrats principaux
 
-- `IAudioEngine` : start/stop, mise à jour DSP, panique, état et métriques ;
-- `IAudioDeviceService` : endpoints de capture et de rendu ;
-- `ISettingsService` : lecture/écriture des réglages validés ;
-- `ISpotifyProcessDetector` : snapshot sans chemin fixe ;
-- `IErrorSink` et `IDiagnosticReportService` : erreurs bornées et rapport expurgé ;
-- `ApplicationState` : état global thread-safe indépendant de WPF.
+- `IAudioEngine` : start, stop, mise à jour DSP, panique, état et métriques ;
+- `IAudioDeviceService` : inventaire capture/rendu et résolution fraîche par ID ;
+- `ISettingsService` : chargement, migration, validation et sauvegarde ;
+- `IStartupService` : vérification et écriture du démarrage utilisateur ;
+- `ISpotifyProcessDetector` : snapshot des processus sans chemin fixe ;
+- `IErrorSink` et `IDiagnosticReportService` : erreurs bornées et export expurgé ;
+- `ApplicationState` : état thread-safe indépendant de WPF.
 
 ## Modèle d’exécution
 
 | Contexte | Travail |
 |---|---|
-| Thread de capture NAudio | copie le bloc dans le tampon borné et incrémente les compteurs |
-| Thread de rendu NAudio | tire les échantillons, rééchantillonne, exécute le DSP et alimente WASAPI |
-| Tâches de cycle de vie | créent, arrêtent et libèrent les objets COM/NAudio hors du thread UI |
-| Dispatcher WPF | propriétés liées, commandes et vues |
-| Logger asynchrone | écrit les transitions et erreurs hors callback audio |
+| Callback de capture NAudio | copie dans le tampon borné et compte les overruns |
+| Callback de rendu NAudio | lit, rééchantillonne, traite le DSP et alimente WASAPI |
+| Tâches de cycle de vie | créent, arrêtent et libèrent les objets audio hors UI |
+| Dispatcher WPF | commandes, propriétés liées et lecture des métriques à 10 Hz |
+| Logger asynchrone | écrit transitions et erreurs via un canal borné |
+| Boucle UI Spotify | actualise les processus toutes les deux secondes |
 
-Les callbacks audio ne lisent aucun fichier, ne modifient pas directement WPF et n’attendent aucun verrou long. Le Dispatcher relève les métriques depuis l’état du moteur à 10 Hz ; il ne reçoit pas chaque bloc audio.
+Les callbacks audio ne lisent aucun fichier et n’accèdent pas à WPF. Les réglages DSP sont préparés hors callback, publiés par échange atomique et appliqués au bloc suivant. `DspSampleProvider.Read` reste sans allocation, y compris au premier bloc après une mise à jour ou une panique. Il publie un snapshot valeur ; un timer moteur distinct construit et diffuse les objets de métriques hors callback.
 
-## États du moteur
+## Cycle du moteur
 
 ```text
 Stopped → Starting → Running → Stopping → Stopped
                       │
-                      ├── DeviceLost → tentative de reconstruction (3 essais)
+                      ├── DeviceLost → reconstruction, trois essais
                       └── Faulted
 ```
 
-Une modification DSP est publiée au `DspSampleProvider` et appliquée au prochain bloc. Les sélecteurs de périphériques sont verrouillés pendant que le moteur fonctionne ; l’utilisateur doit d’abord l’arrêter, choisir la nouvelle route, puis le redémarrer, ce qui reconstruit entièrement le graphe.
+Au démarrage, le moteur :
 
-## Démarrage et arrêt
+1. valide les réglages et la route ;
+2. résout à nouveau les endpoints ;
+3. refuse le multicanal et les routes virtuelles susceptibles de boucler ;
+4. construit tampon, conversions, resampler et DSP ;
+5. démarre la capture ;
+6. préremplit environ `80 ms`, avec timeout d’une seconde ;
+7. démarre la sortie WASAPI partagée.
 
-### Démarrage
+Au changement de périphérique, l’utilisateur arrête le moteur, choisit la route, puis le redémarre. Le graphe est alors reconstruit.
 
-1. validation stricte de la route et des paramètres ;
-2. résolution fraîche des IDs d’endpoints ;
-3. refus des sources multicanales et des routes connues comme rebouclées ;
-4. construction du tampon, des convertisseurs, du resampler et du DSP ;
-5. démarrage de la capture ;
-6. préremplissage jusqu’à environ 80 ms, borné par un timeout d’une seconde ;
-7. démarrage de la sortie partagée.
+## Services du bureau
 
-### Arrêt
+- `TrayIconService` utilise `System.Windows.Forms.NotifyIcon`, deux icônes locales et un menu reconstruit depuis l’état courant.
+- `GlobalHotkeyService` utilise `RegisterHotKey`/`UnregisterHotKey` avec `MOD_NOREPEAT`.
+- `StartupService` écrit une valeur utilisateur `Spotify Booster` sous `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+- La commande enregistrée pointe vers l’exécutable courant et ajoute `--minimized`.
+- Le comportement de fermeture peut masquer dans le tray, demander ou quitter.
 
-1. état `Stopping` et blocage des reprises concurrentes ;
-2. désabonnement des événements ;
-3. arrêt capture puis rendu hors UI ;
-4. remise à zéro DSP/tampon ;
-5. libération des clients, endpoints et objets COM ;
-6. état `Stopped`.
+Ces fonctions n’installent aucun service et ne demandent aucune élévation.
 
-Le socle ne réalise pas encore de fade-out de sortie à l’arrêt ; le gain panique est toutefois ramené à 1,0 avant la prochaine réutilisation du pipeline.
+## Persistance
 
-## Persistance et logs
+Emplacement standard :
 
-- réglages : `%LOCALAPPDATA%\SpotifyBooster\settings.json` ;
-- logs : `%LOCALAPPDATA%\SpotifyBooster\logs\spotify-booster.log` ;
-- taille JSON maximale : 1 MiB ;
-- profondeur JSON maximale : 16 ;
-- membres JSON inconnus refusés ;
-- fichier temporaire puis remplacement ;
-- log borné à 2 MiB avec une génération précédente ;
-- écritures de log via canal borné, jamais directement depuis le callback audio.
+```text
+%LOCALAPPDATA%\SpotifyBooster\settings.json
+%LOCALAPPDATA%\SpotifyBooster\logs\spotify-booster.log
+```
 
-## Évolutions prévues
+Si un fichier vide nommé `portable.mode` se trouve à côté de l’exécutable, les réglages sont stockés dans `Data\settings.json` et les logs dans `Data\logs` sous le dossier de l’application.
 
-- tests matériels longue durée et réglage de la correction de dérive ;
-- surveillance native des notifications de périphériques ;
-- égaliseur multi-bande exposé ;
-- profils nommés éditables ;
-- zone de notification et démarrage automatique ;
-- véritable limiteur look-ahead/true-peak si les mesures CPU le permettent ;
-- nouvel adaptateur audio remplaçant le câble virtuel, sans casser `Core`.
+Le schéma courant est V2. Lorsqu’un fichier V1 valide est chargé :
+
+1. `GainPercent` est limité à `100–500` ;
+2. la valeur est convertie en dB par `20 × log10(percent/100)` ;
+3. le mode devient Protégé si l’ancien limiteur était actif, sinon Direct ;
+4. une sauvegarde unique `settings.schema1.backup.json` est créée ;
+5. le fichier principal est réécrit au format V2.
+
+Le JSON est limité à 1 MiB et à une profondeur de 16. Les propriétés inconnues, commentaires, virgules finales, nœuds structuraux `null` et valeurs hors plage sont refusés. Une configuration invalide ramène les réglages sûrs par défaut.
+
+## Dépendances et support
+
+NAudio 2.3.0 fournit WASAPI et le resampler WDL. Les bibliothèques Microsoft.Extensions 10.0.10 prennent en charge `net8.0`. Les versions sont centralisées et verrouillées. `RuntimeIdentifiers` fixe `win-x64`, dont les graphes sont consignés dans les fichiers de lock.
+
+.NET 8 atteint sa fin de support le 10 novembre 2026. L’architecture reste sur .NET 8 pour cette V2 ; la migration de maintenance doit être planifiée séparément. Voir [Licences tierces](../THIRD_PARTY_NOTICES.md).
+
+## Hors frontière
+
+- aucune API réseau, télémétrie ou mise à jour automatique ;
+- aucun pilote, APO, service Windows ou modification automatique de route ;
+- aucun traitement exclusif par PID ;
+- aucun limiteur true-peak ou look-ahead ;
+- aucune mesure SPL ;
+- aucun artefact signé revendiqué tant que la checklist de release n’est pas clôturée.

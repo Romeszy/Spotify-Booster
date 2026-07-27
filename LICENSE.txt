@@ -1,0 +1,11 @@
+Spotify Booster
+Copyright (c) 2026 Spotify Booster contributors
+All rights reserved.
+
+No license is granted to use, copy, modify, merge, publish, distribute,
+sublicense, or sell this software except under a separate written agreement
+with the copyright holder.
+
+Third-party components remain subject to their own licences. See
+THIRD_PARTY_NOTICES.md and the licences directory distributed with the
+application.

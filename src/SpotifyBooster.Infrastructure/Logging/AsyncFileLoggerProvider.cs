@@ -1,6 +1,7 @@
 using System.Text;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
+using SpotifyBooster.Infrastructure.Storage;
 
 namespace SpotifyBooster.Infrastructure.Logging;
 
@@ -19,11 +20,13 @@ public sealed class AsyncFileLoggerProvider : ILoggerProvider
     private int disposed;
 
     public AsyncFileLoggerProvider()
+        : this(AppDataPaths.Resolve())
+    {
+    }
+
+    public AsyncFileLoggerProvider(AppDataPaths paths)
         : this(
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "SpotifyBooster",
-                "logs"),
+            paths.LogDirectory,
             DefaultMaximumLogFileBytes,
             DefaultQueueCapacity)
     {

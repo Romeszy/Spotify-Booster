@@ -11,8 +11,21 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon>Assets\SpotifyBooster.ico</ApplicationIcon>
+    <Version>0.2.0</Version>
+    <AssemblyVersion>0.2.0.0</AssemblyVersion>
+    <FileVersion>0.2.0.0</FileVersion>
+    <Product>Spotify Booster</Product>
+    <AssemblyTitle>Spotify Booster</AssemblyTitle>
+    <Company>Spotify Booster</Company>
+    <Copyright>Copyright © 2026 Spotify Booster contributors</Copyright>
     <Description>WPF desktop user interface for Spotify Booster.</Description>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
@@ -25,6 +38,12 @@
     <None Update="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\SpotifyBooster.ico" />
+    <Resource Include="Assets\SpotifyBooster-inactive.ico" />
+    <Resource Include="Assets\SpotifyBooster-icon-64.png" />
   </ItemGroup>
 
 </Project>

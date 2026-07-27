@@ -18,20 +18,55 @@ public sealed class NAudioDeviceService : IAudioDeviceService
     ];
 
     private readonly ILogger<NAudioDeviceService> logger;
+    private readonly IErrorSink? errorSink;
+    private string? lastEnumerationError;
 
-    public NAudioDeviceService(ILogger<NAudioDeviceService> logger)
+    public NAudioDeviceService(
+        ILogger<NAudioDeviceService> logger,
+        IErrorSink? errorSink = null)
     {
         this.logger = logger;
+        this.errorSink = errorSink;
+    }
+
+    public string? LastEnumerationError =>
+        Volatile.Read(ref lastEnumerationError);
+
+    public void ClearEnumerationError()
+    {
+        Volatile.Write(ref lastEnumerationError, null);
     }
 
     public IReadOnlyList<AudioDeviceInfo> GetCaptureDevices()
     {
-        return Enumerate(DataFlow.Capture, AudioDeviceDirection.Capture);
+        return Enumerate(
+            DataFlow.Capture,
+            AudioDeviceDirection.Capture,
+            DeviceState.Active);
     }
 
     public IReadOnlyList<AudioDeviceInfo> GetRenderDevices()
     {
-        return Enumerate(DataFlow.Render, AudioDeviceDirection.Render);
+        return Enumerate(
+            DataFlow.Render,
+            AudioDeviceDirection.Render,
+            DeviceState.Active);
+    }
+
+    public IReadOnlyList<AudioDeviceInfo> GetCaptureDeviceInventory()
+    {
+        return Enumerate(
+            DataFlow.Capture,
+            AudioDeviceDirection.Capture,
+            DeviceState.All);
+    }
+
+    public IReadOnlyList<AudioDeviceInfo> GetRenderDeviceInventory()
+    {
+        return Enumerate(
+            DataFlow.Render,
+            AudioDeviceDirection.Render,
+            DeviceState.All);
     }
 
     internal static AudioDeviceInfo Describe(
@@ -41,24 +76,27 @@ public sealed class NAudioDeviceService : IAudioDeviceService
     {
         ArgumentNullException.ThrowIfNull(device);
 
-        NAudio.Wave.WaveFormat format = device.AudioClient.MixFormat;
         string name = device.FriendlyName;
         bool isLikelyVirtual = VirtualDeviceMarkers.Any(
             marker => name.Contains(marker, StringComparison.OrdinalIgnoreCase));
+        (int sampleRate, int channels, int bitsPerSample) = TryGetFormat(device);
         return new(
             device.ID,
             name,
             direction,
             string.Equals(device.ID, defaultDeviceId, StringComparison.Ordinal),
-            format.SampleRate,
-            format.Channels,
-            format.BitsPerSample,
-            isLikelyVirtual);
+            sampleRate,
+            channels,
+            bitsPerSample,
+            isLikelyVirtual,
+            device.State == DeviceState.Active,
+            DescribeState(device.State));
     }
 
     private AudioDeviceInfo[] Enumerate(
         DataFlow flow,
-        AudioDeviceDirection direction)
+        AudioDeviceDirection direction,
+        DeviceState state)
     {
         var devices = new List<AudioDeviceInfo>();
 
@@ -68,7 +106,7 @@ public sealed class NAudioDeviceService : IAudioDeviceService
             string? defaultId = TryGetDefaultId(enumerator, flow);
             MMDeviceCollection endpoints = enumerator.EnumerateAudioEndPoints(
                 flow,
-                DeviceState.Active);
+                state);
             foreach (MMDevice endpoint in endpoints)
             {
                 using (endpoint)
@@ -92,13 +130,18 @@ public sealed class NAudioDeviceService : IAudioDeviceService
             exception is InvalidOperationException
             or System.Runtime.InteropServices.COMException)
         {
+            const string message =
+                "L’API audio Windows n’a pas pu énumérer les périphériques.";
+            Volatile.Write(ref lastEnumerationError, message);
             logger.LogWarning(
                 exception,
                 "L’énumération des périphériques audio Windows a échoué.");
+            errorSink?.Report("Périphériques audio", message);
         }
 
         return devices
-            .OrderByDescending(device => device.IsDefault)
+            .OrderByDescending(device => device.IsActive)
+            .ThenByDescending(device => device.IsDefault)
             .ThenBy(device => device.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToArray();
     }
@@ -120,5 +163,46 @@ public sealed class NAudioDeviceService : IAudioDeviceService
         {
             return null;
         }
+    }
+
+    private static (int SampleRate, int Channels, int BitsPerSample) TryGetFormat(
+        MMDevice device)
+    {
+        try
+        {
+            NAudio.Wave.WaveFormat format = device.AudioClient.MixFormat;
+            return (format.SampleRate, format.Channels, format.BitsPerSample);
+        }
+        catch (Exception exception) when (
+            exception is InvalidOperationException
+            or System.Runtime.InteropServices.COMException)
+        {
+            return (0, 0, 0);
+        }
+    }
+
+    private static string DescribeState(DeviceState state)
+    {
+        if ((state & DeviceState.Active) != 0)
+        {
+            return "Actif";
+        }
+
+        if ((state & DeviceState.Disabled) != 0)
+        {
+            return "Désactivé";
+        }
+
+        if ((state & DeviceState.Unplugged) != 0)
+        {
+            return "Débranché";
+        }
+
+        if ((state & DeviceState.NotPresent) != 0)
+        {
+            return "Absent";
+        }
+
+        return "Indéterminé";
     }
 }

@@ -7,6 +7,8 @@ namespace SpotifyBooster.Infrastructure.Windows;
 public sealed class WindowsSettingsLauncher : IWindowsSettingsLauncher
 {
     private const string VolumeMixerUri = "ms-settings:apps-volume";
+    private const string SoundSettingsUri = "ms-settings:sound";
+    private const string VbCableWebsiteUri = "https://vb-audio.com/Cable/";
     private readonly ILogger<WindowsSettingsLauncher> logger;
     private readonly IErrorSink errorSink;
 
@@ -20,11 +22,32 @@ public sealed class WindowsSettingsLauncher : IWindowsSettingsLauncher
 
     public bool OpenVolumeMixer()
     {
+        return Open(
+            VolumeMixerUri,
+            "Impossible d’ouvrir le mélangeur de volume Windows.");
+    }
+
+    public bool OpenSoundSettings()
+    {
+        return Open(
+            SoundSettingsUri,
+            "Impossible d’ouvrir les paramètres de son Windows.");
+    }
+
+    public bool OpenVbCableWebsite()
+    {
+        return Open(
+            VbCableWebsiteUri,
+            "Impossible d’ouvrir la page officielle de VB-CABLE.");
+    }
+
+    private bool Open(string destination, string failureMessage)
+    {
         try
         {
             Process.Start(new ProcessStartInfo
             {
-                FileName = VolumeMixerUri,
+                FileName = destination,
                 UseShellExecute = true,
             });
             return true;
@@ -33,9 +56,8 @@ public sealed class WindowsSettingsLauncher : IWindowsSettingsLauncher
             exception is InvalidOperationException
             or System.ComponentModel.Win32Exception)
         {
-            const string message = "Impossible d’ouvrir le mélangeur de volume Windows.";
-            logger.LogWarning(exception, "{Message}", message);
-            errorSink.Report("Windows", message);
+            logger.LogWarning(exception, "{Message}", failureMessage);
+            errorSink.Report("Windows", failureMessage);
             return false;
         }
     }

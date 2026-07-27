@@ -9,8 +9,6 @@ public interface IAudioEngine : IAsyncDisposable
 
     event EventHandler<AudioEngineMetrics>? MetricsUpdated;
 
-    event EventHandler<AutomaticGainReductionEventArgs>? GainAutomaticallyReduced;
-
     AudioEngineStatus Status { get; }
 
     Task StartAsync(

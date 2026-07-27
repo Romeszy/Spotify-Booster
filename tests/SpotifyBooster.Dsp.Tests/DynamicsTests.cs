@@ -59,4 +59,64 @@ public sealed class DynamicsTests
         Assert.Equal(1.5f, left);
         Assert.Equal(-0.7f, right);
     }
+
+    [Fact]
+    public void DisabledLimiterIsTransparentAboveDigitalFullScale()
+    {
+        var limiter = new StereoLimiter(48_000, enabled: false);
+        float left = 2.5f;
+        float right = -1.25f;
+
+        bool limited = limiter.Process(ref left, ref right);
+
+        Assert.False(limited);
+        Assert.Equal(2.5f, left);
+        Assert.Equal(-1.25f, right);
+        Assert.Equal(0f, limiter.GainReductionDecibels);
+    }
+
+    [Fact]
+    public void DisabledSoftClipperIsTransparentAboveDigitalFullScale()
+    {
+        var clipper = new StereoSoftClipper(enabled: false);
+        float left = 2.5f;
+        float right = -1.25f;
+
+        int affected = clipper.Process(ref left, ref right);
+
+        Assert.Equal(0, affected);
+        Assert.Equal(2.5f, left);
+        Assert.Equal(-1.25f, right);
+    }
+
+    [Theory]
+    [InlineData(-1f, 2f)]
+    [InlineData(-6f, 4f)]
+    [InlineData(-12f, 8f)]
+    public void SoftClipperIsContinuousAndBounded(
+        float thresholdDecibels,
+        float drive)
+    {
+        var clipper = new StereoSoftClipper(
+            enabled: true,
+            thresholdDecibels,
+            drive);
+        float threshold = GainConversion.DecibelsToFactor(thresholdDecibels);
+        float belowLeft = threshold * 0.99f;
+        float belowRight = -belowLeft;
+
+        int belowAffected = clipper.Process(ref belowLeft, ref belowRight);
+
+        Assert.Equal(0, belowAffected);
+        Assert.Equal(threshold * 0.99f, belowLeft);
+        Assert.Equal(-threshold * 0.99f, belowRight);
+
+        float aboveLeft = 4f;
+        float aboveRight = -2f;
+        int aboveAffected = clipper.Process(ref aboveLeft, ref aboveRight);
+
+        Assert.Equal(2, aboveAffected);
+        Assert.InRange(aboveLeft, threshold, 1f);
+        Assert.InRange(aboveRight, -1f, -threshold);
+    }
 }

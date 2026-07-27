@@ -1,3 +1,5 @@
+using SpotifyBooster.Core.Configuration;
+
 namespace SpotifyBooster.Core.Models;
 
 public sealed record DiagnosticError(
@@ -11,4 +13,5 @@ public sealed record DiagnosticSnapshot(
     AudioDeviceInfo? Source,
     AudioDeviceInfo? Output,
     AudioEngineStatus Engine,
-    IReadOnlyList<DiagnosticError> RecentErrors);
+    IReadOnlyList<DiagnosticError> RecentErrors,
+    AudioProcessingSettings? Processing = null);

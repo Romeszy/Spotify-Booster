@@ -4,45 +4,84 @@ public enum DspProfile
 {
     Balanced,
     Punch,
-    DeepBass
+    DeepBass,
+    Custom,
 }
 
-public readonly record struct DspSettings(
-    float GainPercent,
-    float GainSmoothingMilliseconds,
-    float LowShelfFrequencyHz,
-    float LowShelfGainDecibels,
-    bool EqualizerEnabled,
-    float EqualizerFrequencyHz,
-    float EqualizerGainDecibels,
-    float EqualizerQ,
-    bool CompressorEnabled,
-    float CompressorThresholdDecibels,
-    float CompressorRatio,
-    float CompressorAttackMilliseconds,
-    float CompressorReleaseMilliseconds,
-    float CompressorMakeupGainDecibels,
-    bool LimiterEnabled,
-    float LimiterCeilingDecibels,
-    float LimiterReleaseMilliseconds)
+public sealed record DspSettings
 {
-    public static DspSettings Balanced => new(
-        150f, 5f, 90f, 2f,
-        false, 1_000f, 0f, 0.707f,
-        true, -10f, 2.5f, 10f, 100f, 0f,
-        true, -1f, 50f);
+    public float MainGainDecibels { get; init; }
 
-    public static DspSettings Punch => new(
-        200f, 4f, 110f, 4f,
-        true, 2_500f, 1.5f, 0.8f,
-        true, -14f, 4f, 5f, 80f, 1f,
-        true, -1f, 60f);
+    public float GainSmoothingMilliseconds { get; init; } = 20f;
 
-    public static DspSettings DeepBass => new(
-        180f, 8f, 70f, 9f,
-        false, 1_000f, 0f, 0.707f,
-        true, -16f, 3f, 15f, 140f, 0f,
-        true, -1f, 80f);
+    public float PanicSmoothingMilliseconds { get; init; } = 1.5f;
+
+    public bool DcBlockEnabled { get; init; } = true;
+
+    public bool BassBoostEnabled { get; init; } = true;
+
+    public float LowShelfFrequencyHz { get; init; } = 90f;
+
+    public float LowShelfGainDecibels { get; init; } = 3f;
+
+    public float LowShelfSlope { get; init; } = 1f;
+
+    public bool EqualizerEnabled { get; init; }
+
+    public float EqualizerLowGainDecibels { get; init; }
+
+    public float EqualizerMidGainDecibels { get; init; }
+
+    public float EqualizerHighGainDecibels { get; init; }
+
+    public float EqualizerQ { get; init; } = 0.707f;
+
+    public bool CompressorEnabled { get; init; }
+
+    public float CompressorThresholdDecibels { get; init; } = -12f;
+
+    public float CompressorRatio { get; init; } = 3f;
+
+    public float CompressorAttackMilliseconds { get; init; } = 10f;
+
+    public float CompressorReleaseMilliseconds { get; init; } = 150f;
+
+    public float CompressorMakeupGainDecibels { get; init; }
+
+    public bool SoftClipperEnabled { get; init; } = true;
+
+    public float SoftClipperThresholdDecibels { get; init; } = -1f;
+
+    public float SoftClipperDrive { get; init; } = 2f;
+
+    public bool LimiterEnabled { get; init; } = true;
+
+    public float LimiterCeilingDecibels { get; init; } = -1f;
+
+    public float LimiterReleaseMilliseconds { get; init; } = 80f;
+
+    public float OutputGainDecibels { get; init; }
+
+    public static DspSettings Balanced => new()
+    {
+        LowShelfFrequencyHz = 90f,
+        LowShelfGainDecibels = 3f,
+        LowShelfSlope = 0.9f,
+    };
+
+    public static DspSettings Punch => new()
+    {
+        LowShelfFrequencyHz = 110f,
+        LowShelfGainDecibels = 6f,
+        LowShelfSlope = 1.2f,
+    };
+
+    public static DspSettings DeepBass => new()
+    {
+        LowShelfFrequencyHz = 55f,
+        LowShelfGainDecibels = 9f,
+        LowShelfSlope = 0.75f,
+    };
 
     public static DspSettings ForProfile(DspProfile profile) => profile switch
     {

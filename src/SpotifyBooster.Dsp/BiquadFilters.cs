@@ -54,23 +54,33 @@ public abstract class StereoBiquad
 
 public sealed class LowShelfFilter : StereoBiquad
 {
-    public LowShelfFilter(int sampleRate, float frequencyHz = 100f, float gainDecibels = 0f)
+    public LowShelfFilter(
+        int sampleRate,
+        float frequencyHz = 100f,
+        float gainDecibels = 0f,
+        float slope = 1f)
     {
-        Configure(sampleRate, frequencyHz, gainDecibels);
+        Configure(sampleRate, frequencyHz, gainDecibels, slope);
     }
 
-    public void Configure(int sampleRate, float frequencyHz, float gainDecibels)
+    public void Configure(
+        int sampleRate,
+        float frequencyHz,
+        float gainDecibels,
+        float slope = 1f)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
-        frequencyHz = Math.Clamp(frequencyHz, 40f, Math.Min(200f, sampleRate * 0.45f));
-        gainDecibels = Math.Clamp(gainDecibels, 0f, 12f);
+        frequencyHz = Math.Clamp(frequencyHz, 35f, Math.Min(200f, sampleRate * 0.45f));
+        gainDecibels = Math.Clamp(gainDecibels, 0f, 18f);
+        slope = Math.Clamp(slope, 0.25f, 2f);
 
         float a = MathF.Pow(10f, gainDecibels / 40f);
         float omega = 2f * MathF.PI * frequencyHz / sampleRate;
         float cosine = MathF.Cos(omega);
         float sine = MathF.Sin(omega);
-        float alphaTerm = sine * MathF.Sqrt(2f * a);
-        float twoSqrtAAlpha = alphaTerm;
+        float alpha = (sine / 2f) * MathF.Sqrt(
+            ((a + (1f / a)) * ((1f / slope) - 1f)) + 2f);
+        float twoSqrtAAlpha = 2f * MathF.Sqrt(a) * alpha;
 
         SetCoefficients(
             a * ((a + 1f) - ((a - 1f) * cosine) + twoSqrtAAlpha),

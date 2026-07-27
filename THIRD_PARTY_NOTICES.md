@@ -1,8 +1,6 @@
 # Third-party notices
 
-Versions resolved on 27 July 2026 from NuGet. Exact dependency graphs are locked in each project’s `packages.lock.json`.
-
-These notices identify dependencies and licenses; they do not replace the license texts distributed by their authors.
+Package versions were verified from the repository’s `packages.lock.json` files on 28 July 2026. These notices identify dependencies and license families; they do not replace the complete license texts that a distributor must bundle.
 
 ## Runtime dependencies
 
@@ -11,7 +9,7 @@ These notices identify dependencies and licenses; they do not replace the licens
 | Package | Version | Use | License |
 |---|---:|---|---|
 | `NAudio.Wasapi` | 2.3.0 | WASAPI capture/output and Core Audio endpoints | MIT |
-| `NAudio.Core` | 2.3.0 | Wave formats, sample providers and WDL resampler | MIT |
+| `NAudio.Core` | 2.3.0 | Wave formats, sample providers and WDL resampling | MIT |
 
 Copyright © Mark Heath and contributors.
 
@@ -19,9 +17,11 @@ Copyright © Mark Heath and contributors.
 - Package: <https://www.nuget.org/packages/NAudio.Wasapi/2.3.0>
 - License: <https://github.com/naudio/NAudio/blob/v2.3.0/license.txt>
 
-The smaller `NAudio.Wasapi` package is used instead of the full `NAudio` metapackage to avoid unused ASIO, MIDI, WinMM and WinForms modules.
+Spotify Booster references the smaller `NAudio.Wasapi` package rather than the full `NAudio` metapackage. `NAudio.Core` is resolved transitively.
 
-### Microsoft.Extensions and supporting Microsoft packages
+The MIT license is permissive, but redistribution must preserve its copyright and permission notice.
+
+### Microsoft.Extensions and supporting packages
 
 Direct packages:
 
@@ -52,11 +52,17 @@ Copyright © Microsoft Corporation and contributors. License: MIT.
 - Repositories: <https://github.com/dotnet/runtime>, <https://github.com/dotnet/extensions>
 - License: <https://github.com/dotnet/runtime/blob/main/LICENSE.TXT>
 
-The 10.0.10 packages explicitly support `net8.0`. The application still targets .NET 8 as required; migration to .NET 10 LTS is tracked because .NET 8 support ends on 10 November 2026.
+The 10.0.10 packages support `net8.0`. Spotify Booster still targets .NET 8. .NET 8 support ends on 10 November 2026, so a maintained release must migrate or otherwise address the unsupported runtime after that date.
+
+### .NET Desktop Runtime
+
+Framework-dependent packages require the Microsoft .NET Desktop Runtime 8 on the target machine. Self-contained packages include runtime files produced by the .NET SDK.
+
+Distributors must review the applicable Microsoft .NET distribution terms and include the required notices for the exact published output. The repository’s NuGet inventory alone is not a complete runtime notice set.
 
 ## Test-only dependencies
 
-These packages are used to build/run tests and are not application features.
+These packages build or run tests; they are not application features.
 
 ### xUnit.net
 
@@ -81,13 +87,15 @@ Copyright © .NET Foundation and contributors. License: Apache License 2.0.
 - Project: <https://github.com/xunit/xunit>
 - License: <https://github.com/xunit/xunit/blob/main/LICENSE>
 
+Apache-2.0 is permissive but includes notice, attribution and patent-license conditions. A distributor must include the license text and any applicable notices.
+
 ### Microsoft test platform
 
 Direct package:
 
 - `Microsoft.NET.Test.Sdk` 18.8.1
 
-Resolved test platform packages:
+Resolved packages:
 
 - `Microsoft.CodeCoverage` 18.8.1
 - `Microsoft.TestPlatform.ObjectModel` 18.8.1
@@ -98,15 +106,13 @@ Resolved test platform packages:
 - `Microsoft.Testing.Extensions.TrxReport.Abstractions` 1.9.1
 - `Microsoft.ApplicationInsights` 2.23.0
 
-License: MIT.
+License family: MIT.
 
 - Test platform: <https://github.com/microsoft/vstest>
 - Microsoft Testing Platform: <https://github.com/microsoft/testfx>
 - License: <https://github.com/microsoft/vstest/blob/main/LICENSE>
 
-`Microsoft.Testing.Extensions.Telemetry` is a transitive **test-runner** dependency. It is not referenced by the WPF application. The validation commands used for this delivery set `DOTNET_CLI_TELEMETRY_OPTOUT=1`; the repository does not currently enforce that environment variable through a script.
-
-The NuGet deprecation audit reports `Microsoft.NETCore.Platforms` 5.0.0, `System.Security.AccessControl` 5.0.0 and, for the DSP test project, `System.Diagnostics.DiagnosticSource` 5.0.0 as legacy transitive test dependencies. They are not runtime dependencies of Spotify Booster. No direct or transitive package was reported as vulnerable by the NuGet audit on 27 July 2026.
+`Microsoft.Testing.Extensions.Telemetry` is a transitive test-runner dependency. It is not referenced by the WPF application and does not add application telemetry.
 
 ### Microsoft/System compatibility packages used by tests
 
@@ -114,15 +120,51 @@ The NuGet deprecation audit reports `Microsoft.NETCore.Platforms` 5.0.0, `System
 - `Microsoft.NETCore.Platforms` 5.0.0
 - `Microsoft.Win32.Registry` 5.0.0
 - `System.Collections.Immutable` 8.0.0
-- `System.Diagnostics.DiagnosticSource` 5.0.0/10.0.10
+- `System.Diagnostics.DiagnosticSource` 5.0.0 or 10.0.10
 - `System.Reflection.Metadata` 8.0.0
 - `System.Security.AccessControl` 5.0.0
 - `System.Security.Principal.Windows` 5.0.0
 
-Copyright © Microsoft Corporation and contributors. License: MIT.
+Copyright © Microsoft Corporation and contributors. License family: MIT.
 
 - License: <https://github.com/dotnet/runtime/blob/main/LICENSE.TXT>
 
-## Commercial-use note
+Some version 5.0.0 transitive test dependencies have previously been reported as legacy/deprecated. They are not runtime dependencies of Spotify Booster. Vulnerability and deprecation audits must be rerun for the final release; this notice does not claim a fresh security result.
 
-MIT and Apache-2.0 are permissive licenses commonly compatible with commercial distribution when their notice and license obligations are followed. This file is an engineering inventory, not legal advice. A release process should generate an SBOM, bundle the full license texts and obtain legal review for the product’s use of Spotify audio/content.
+## External software not distributed
+
+### NSIS
+
+NSIS 3.12 is the verified build-time dependency used to create `SpotifyBooster-Setup-x64.exe`. It is not a runtime dependency of the portable application. The generated installer contains NSIS installer components, so the distribution includes the applicable NSIS zlib/libpng-style license notice.
+
+- Project: <https://nsis.sourceforge.io/>
+- License: <https://nsis.sourceforge.io/License>
+
+The generated portable and installer include `LICENSE.txt`, this notice file and the `licenses/` directory. The release script rebuilds them from the final clean commit. They remain unsigned because no Authenticode certificate is configured.
+
+### VB-CABLE
+
+VB-CABLE is optional external driver software installed manually by the user. Spotify Booster may open the fixed vendor URL <https://vb-audio.com/Cable/>, but it does not download, install, link, bundle or redistribute VB-CABLE.
+
+Its license and commercial-use conditions are controlled by VB-Audio. They are not covered by the MIT/Apache notices above.
+
+### Spotify
+
+Spotify Desktop is external software. This project is not affiliated with or endorsed by Spotify. Spotify names and marks belong to their respective owner. No Spotify SDK, API or package is included.
+
+## Project artwork
+
+The application icon and its active/inactive local variants are original project assets, not third-party icon-library or Spotify assets. They are outside this third-party inventory and remain subject to the repository’s `LICENSE.txt`.
+
+## Distribution requirements
+
+Before distributing a build:
+
+1. generate an SBOM from the final published files;
+2. include the complete MIT and Apache-2.0 texts and applicable notices;
+3. include the .NET runtime notices required by the chosen publish mode;
+4. verify that no VB-CABLE installer or driver is present;
+5. rerun vulnerability and deprecation audits;
+6. obtain legal review where required.
+
+MIT and Apache-2.0 are commonly compatible with commercial distribution when their conditions are met. This file is an engineering inventory, not legal advice.

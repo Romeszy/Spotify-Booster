@@ -1,118 +1,169 @@
 # État du projet
 
-Mise à jour : 27 juillet 2026.
+Mise à jour : 28 juillet 2026.
 
-## Environnement vérifié
+## Références
 
-| Élément | Résultat |
+| Élément | Valeur |
 |---|---|
-| Racine | `F:\Spotify Booster` |
-| Système | Windows 11 Famille 64 bits, build 26200 |
-| CPU | AMD Ryzen 7 7800X3D |
-| Git | 2.54.0.windows.1 |
-| SDK initial | absent du `PATH` et des emplacements standards |
-| SDK de build | .NET SDK 8.0.423 installé sans admin sous `.dotnet` |
-| Runtime Desktop | 8.0.29 |
-| Endpoints Windows actifs observés | 9 |
-| Endpoint ressemblant à un câble virtuel | 0 |
-| Processus Spotify observés | 7 |
+| Racine de travail | `F:\Spotify Booster` |
+| Branche V2 | `codex/spotify-booster-desktop-v2` |
+| Baseline MVP | `ab2923cf44756be7b8446d67e6cbe15123cee3d2` |
+| Version applicative déclarée | `0.2.0` |
+| SDK fixé | .NET SDK `8.0.423` |
+| Cible bureau | `net8.0-windows10.0.19041.0` |
 
-Le SDK local n’est pas versionné. L’installation a utilisé le script officiel Microsoft `dotnet-install.ps1`.
+La branche V2 est fondée sur le commit MVP `ab2923c`. La livraison est intégrée dans un commit cohérent, puis le package est régénéré depuis ce worktree propre. Le rapport sous `artifacts\reports` constitue la source de vérité pour le commit, la version informative et les compteurs de tests ; le manifeste sous `artifacts\checksums` porte les hashes.
 
-## Phase 0
+## Baseline vérifiée
 
-| Élément | État |
+Le commit `ab2923c` sur `codex/spotify-booster-mvp` avait :
+
+- restauration réussie ;
+- build Release propre ;
+- `71/71` tests automatisés réussis ;
+- smoke test de la fenêtre WPF réussi ;
+- aucun câble virtuel disponible sur la machine de référence.
+
+Cette preuve concerne le MVP baseline, pas automatiquement l’ensemble des modifications V2 non commitées.
+
+## Fonctionnalités V2 implémentées
+
+| Domaine | État du code |
 |---|---|
-| Solution et huit projets | Terminé |
-| DI et logging asynchrone | Terminé |
-| Configuration JSON locale | Terminé et testée |
-| Contrats et état global | Terminé |
-| Gestion globale des erreurs | Terminé |
-| WPF sombre/compacte | Terminé, ouverture/fermeture smoke-testée |
-| Navigation simple | Terminé |
-| Assistant première configuration | Terminé |
-| Diagnostic/export texte | Terminé et testé hors dialogue |
-| Documentation initiale | Terminé |
+| Gain canonique en dB | Implémenté |
+| Plage standard `0 à +14 dB` | Implémentée |
+| Expert brut avec plafond configurable `+25 à +1000 dB` | Implémenté, `+1000 dB` par défaut |
+| Borne architecturale `+1000 dB` | Validée par le modèle |
+| Lissage du gain principal en dB, calcul double et borne interne `±64` | Implémentés |
+| Modes Protégé, Direct, Expert brut | Implémentés et explicites |
+| Absence de réduction persistante automatique | Implémentée |
+| DC blocker modulaire | Implémenté |
+| Bass Boost `35–200 Hz`, jusqu’à `+18 dB` | Implémenté |
+| Égaliseur trois bandes | Implémenté |
+| Compresseur optionnel | Implémenté |
+| Soft clipper optionnel | Implémenté |
+| Limiteur sample-peak optionnel | Implémenté |
+| Gain de sortie | Implémenté |
+| Gain de sortie Protégé borné à `0 dB` max | Implémenté et testé |
+| Avertissement gain de sortie positif Direct/Expert | Implémenté |
+| Migration JSON V1 → V2 avec backup | Implémentée |
+| Profils persistés alimentant l’UI Bass Boost | Implémentés |
+| Assistant de routage en sept étapes | Implémenté |
+| Zone de notification et menu rapide | Implémentés |
+| Comportement de fermeture configurable | Implémenté |
+| Démarrage utilisateur via HKCU Run | Implémenté |
+| Démarrage masqué `--minimized` | Implémenté |
+| Raccourcis globaux | Implémentés |
+| Diagnostic V2 et export texte | Implémentés |
+| Icône locale originale et variantes | Intégrées |
+| VB-CABLE | Externe, manuel, non distribué |
+| Réseau/télémétrie | Aucun dans le code applicatif |
+| Pilote/APO/service | Aucun |
+| Scripts build/test/release | Implémentés |
+| Lecture DSP sans allocation après update/panique | Implémentée et testée |
+| Publication des métriques hors callback | Implémentée |
+| Portable self-contained single-file | Généré |
+| Installateur NSIS 3.12 utilisateur | Généré |
 
-## Socle Phase 1
+## Validation automatisée V2
 
-| Élément | État réel |
-|---|---|
-| Énumération capture/rendu WASAPI | Implémentée, appel NAudio smoke-testé |
-| Sélection source/sortie | Implémentée |
-| Capture source virtuelle | Implémentée dans le graphe, non testée avec un câble réel ici |
-| Retransmission vers sortie | Implémentée dans le graphe, non testée de bout en bout ici |
-| Conversion PCM/float, entrée mono/stéréo, sortie stéréo | Implémentée et testée |
-| Resampling 44,1/48 kHz | Implémenté et testé hors ligne |
-| Correction de dérive | Implémentée, calibration matérielle requise |
-| Gain 100–500 % | Implémenté et testé |
-| Bass Boost low-shelf | Implémenté et testé |
-| Compresseur | Implémenté et testé |
-| Limiteur −1 dBFS | Implémenté et testé |
-| Vu-mètres/clipping/limitation | Reliés aux métriques réelles |
-| Panique 100 % | Implémentée au bloc suivant |
-| Réduction automatique après saturation | Implémentée |
-| Détection Spotify | Implémentée et test smoke |
-| Sauvegarde | Implémentée et testée |
-| Reprise après déconnexion | Trois essais implémentés ; annulation et teardown résilient testés, matériel requis |
-
-## Validation automatisée
-
-Résultats frais du 27 juillet 2026 :
+Vérification locale fraîche du 28 juillet 2026 :
 
 - restauration verrouillée : réussie ;
-- build Release des huit projets : réussi, zéro avertissement et zéro erreur ;
-- tests DSP : 35/35 ;
-- tests Audio : 19/19 ;
-- tests Core/Infrastructure : 17/17 ;
-- total : 71/71 ;
-- smoke test WPF : fenêtre `Spotify Booster` visible et réactive, fermeture par `WM_CLOSE`, code de sortie 0 ;
-- audit NuGet vulnérabilités : aucune vulnérabilité signalée ;
-- audit NuGet dépréciation : trois dépendances transitives legacy, uniquement dans les projets de test.
+- build Release : réussi ;
+- avertissements : 0 ;
+- erreurs : 0 ;
+- DSP : `71/71` ;
+- Audio : `27/27` ;
+- Core/Infrastructure : `64/64` ;
+- total : `162/162`.
 
-Le hash du commit et l’état du push sont fournis dans le rapport de livraison final.
+Les commandes exécutées sont :
 
-## Fonctionnalités volontairement non revendiquées
+```powershell
+& ".\.dotnet\dotnet.exe" restore .\SpotifyBooster.sln --locked-mode
+& ".\.dotnet\dotnet.exe" build .\SpotifyBooster.sln --configuration Release --no-restore
+& ".\.dotnet\dotnet.exe" test .\SpotifyBooster.sln --configuration Release --no-build
+```
 
-- aucune preuve de transit Spotify → câble → DSP → casque sur cette machine ;
-- aucun test ne démarre réellement `WasapiCapture`/`WasapiOut` faute de route virtuelle disponible ;
-- aucun test auditif ou de qualité sonore ;
-- aucune exclusivité par application sans routage manuel ;
+Le rapport de release doit réexécuter la suite sur le commit final et consigner tout écart par rapport à ces 162 tests.
+
+## Validation matérielle
+
+La route audio a été ouverte puis arrêtée sans erreur, mais aucun signal n’a été injecté : le vu-mètre est resté à `−∞`. Aucun test audio réel ne peut donc être revendiqué.
+
+Restent non réalisés :
+
+- transit Spotify → VB-CABLE → DSP → casque/enceintes ;
+- qualité sonore et comparaison des trois modes ;
+- session longue 30–60 minutes ;
+- dérive réelle entre horloges ;
+- récupération après débranchement, veille/reprise et changement de session ;
+- sorties filaire, USB, HDMI et Bluetooth ;
+- comportement auditif du soft clipper/limiteur ;
+- niveau acoustique.
+
+Le transit audio de bout en bout reste non validé.
+
+## Packaging et release
+
+Package de livraison du 28 juillet 2026 :
+
+- `artifacts\portable\SpotifyBooster-Portable-x64.exe` généré ;
+- `artifacts\installer\SpotifyBooster-Setup-x64.exe` généré avec NSIS 3.12 ;
+- `artifacts\checksums\SHA256SUMS.txt` généré en UTF-8 sans BOM ;
+- `artifacts\reports\release-report.txt` généré avec branche, commit et état du worktree ;
+- trois rapports TRX conservés sous `artifacts\reports\tests` ;
+- rapport `Status: Complete` et provenance `Worktree: clean` ;
+- `LICENSE.txt`, `THIRD_PARTY_NOTICES.md` et `licenses\` inclus ;
+- `13/13` entrées du manifeste SHA-256 recalculées et vérifiées ;
+- métadonnées de version des deux exécutables vérifiées ;
+- installation puis désinstallation silencieuses testées sur cette machine, avec codes `0/0` et aucun résidu ;
+- binaires non signés.
+
+Ces fichiers forment un candidat de livraison reproductible, mais les gates suivants restent ouverts :
+
+- test sur machine propre ;
+- signature Authenticode ;
+- SBOM ;
+- smoke test portable isolé du package final ;
+- QA manuelle signée.
+
+Ne pas ajouter de valeurs fictives. Utiliser [PACKAGING.md](PACKAGING.md) et [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
+
+## Limites non revendiquées
+
 - aucune capture par PID ;
-- aucun pilote/APO propriétaire ;
-- aucune installation de câble ;
-- aucun installateur ou binaire signé ;
-- aucun démarrage Windows ;
-- aucune zone de notification ;
-- aucune gestion UI complète de profils personnalisés ;
-- égaliseur UI multi-bande non livré ;
-- limiteur true-peak/look-ahead non livré ;
-- aucune mesure SPL ou garantie de sécurité à 500 %.
-
-Le générateur de signaux est un outil de test hors ligne. Il ne remplace pas le signal réel dans l’application.
-
-## Prochaines étapes vers un MVP audio validé
-
-1. Installer manuellement un câble virtuel sur une machine de test dédiée.
-2. Router uniquement Spotify vers son endpoint de rendu.
-3. Vérifier source → sortie à 100 %, puis 150/200 %.
-4. Exécuter 30–60 minutes à 44,1 et 48 kHz.
-5. Mesurer latence, charge CPU, dérive, underruns/overruns et fuites.
-6. Tester débranchement/rebranchement, veille/reprise et changement de sortie.
-7. Tester casque filaire, USB, HDMI et Bluetooth.
-8. Ajouter fade-in/fade-out explicite lors des reconstructions.
-9. Calibrer la boucle de correction de dérive avec les mesures.
-10. Exposer l’égaliseur et la gestion de profils seulement après stabilité du routage.
-11. Ajouter tray/autostart, packaging et signature dans une phase séparée.
+- aucune exclusivité par application sans routage Windows manuel ;
+- aucune installation ou redistribution de VB-CABLE ;
+- aucun changement silencieux de route Windows ;
+- aucun limiteur true-peak/look-ahead ;
+- aucune mesure SPL ou garantie auditive ;
+- aucune mise à jour automatique ;
+- aucune télémétrie ;
+- aucun binaire signé à ce stade ;
+- aucun test machine propre ;
+- aucune validation installation/désinstallation sur machine propre ;
+- aucune validation DPI 125 % ou 150 %.
 
 ## Risques ouverts
 
-- `WasapiOut` est stable dans NAudio 2.3 mais considéré legacy dans la future branche NAudio 3 ;
-- deux endpoints ont des horloges indépendantes, d’où le besoin de tests longue durée ;
-- un pilote qui fournit un format inhabituel peut être refusé ;
-- Bluetooth et modes exclusifs peuvent invalider les hypothèses de latence ;
-- les fréquences de sortie au-delà de 48 kHz peuvent être ouvertes par WASAPI mais ne sont pas qualifiées par les tests hors ligne actuels ;
-- un câble non reconnu par son nom est bloqué dans ce MVP, même s’il est techniquement compatible ;
-- les objets de métriques agrégées sont encore créés à environ 10 Hz sur le callback de rendu ;
-- les paquets transitifs legacy détectés ne concernent que l’infrastructure de test ;
-- la fin de support .NET 8 est prévue le 10 novembre 2026 : migration vers .NET 10 LTS à planifier.
+- calibration matérielle de la correction de dérive ;
+- formats/pilotes inhabituels ;
+- latence Bluetooth/HDMI ;
+- sortie positive après le limiteur pouvant recréer du clipping ;
+- heuristique de détection des périphériques virtuels ;
+- compatibilité et durée de vie du moteur `WasapiOut` ;
+- fin de support .NET 8 le 10 novembre 2026 ;
+- audit de dépendances et validation de distribution à refaire sur le paquet final.
+
+## Stop condition V2
+
+La V2 ne doit être déclarée prête à distribuer que lorsque :
+
+1. build et suite complète sont revalidés sur le commit final ;
+2. transit audio réel et tests de récupération sont consignés ;
+3. le paquet final passe sur une machine propre ;
+4. SBOM, signature et hashes finaux sont présents ;
+5. la checklist de release ne contient plus de gate bloquant.

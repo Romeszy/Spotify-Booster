@@ -38,7 +38,7 @@ public sealed class SpotifyProcessDetector : ISpotifyProcessDetector
                     continue;
                 }
 
-                if (!processName.Contains("Spotify", StringComparison.OrdinalIgnoreCase))
+                if (!IsSpotifyProcessName(processName))
                 {
                     continue;
                 }
@@ -57,6 +57,16 @@ public sealed class SpotifyProcessDetector : ISpotifyProcessDetector
             .OrderBy(process => process.ProcessId)
             .ToArray();
         return result;
+    }
+
+    public static bool IsSpotifyProcessName(string processName)
+    {
+        return processName.Equals(
+                "Spotify",
+                StringComparison.OrdinalIgnoreCase)
+            || processName.StartsWith(
+                "SpotifyAB.SpotifyMusic",
+                StringComparison.OrdinalIgnoreCase);
     }
 
     private static DateTimeOffset? TryGetStartTime(Process process)

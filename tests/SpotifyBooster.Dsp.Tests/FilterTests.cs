@@ -31,6 +31,37 @@ public sealed class FilterTests
         Assert.InRange(treble, 0.95f, 1.05f);
     }
 
+    [Theory]
+    [InlineData(44_100, 35f, 18f, 10f)]
+    [InlineData(44_100, 200f, 18f, 20f)]
+    [InlineData(48_000, 35f, 18f, 10f)]
+    [InlineData(48_000, 200f, 18f, 20f)]
+    public void LowShelfSupportsFullV2BassRange(
+        int sampleRate,
+        float shelfFrequency,
+        float boostDecibels,
+        float measuredFrequency)
+    {
+        float bass = MeasureGain(
+            sampleRate,
+            measuredFrequency,
+            boostDecibels,
+            shelfFrequency,
+            slope: 1f,
+            durationSeconds: 4);
+        float treble = MeasureGain(
+            sampleRate,
+            5_000f,
+            boostDecibels,
+            shelfFrequency,
+            slope: 1f,
+            durationSeconds: 2);
+
+        Assert.True(float.IsFinite(bass));
+        Assert.InRange(bass, 6f, 8.5f);
+        Assert.InRange(treble, 0.95f, 1.05f);
+    }
+
     [Fact]
     public void LowShelfImpulseResponseDecaysAndIsFinite()
     {
@@ -85,20 +116,30 @@ public sealed class FilterTests
         Assert.Equal(-0.3f, right);
     }
 
-    private static float MeasureGain(int sampleRate, float frequency, float boost)
+    private static float MeasureGain(
+        int sampleRate,
+        float frequency,
+        float boost,
+        float shelfFrequency = 100f,
+        float slope = 1f,
+        int durationSeconds = 2)
     {
-        var filter = new LowShelfFilter(sampleRate, 100f, boost);
+        var filter = new LowShelfFilter(
+            sampleRate,
+            shelfFrequency,
+            boost,
+            slope);
         double inputEnergy = 0;
         double outputEnergy = 0;
         int measured = 0;
 
-        for (int index = 0; index < sampleRate * 2; index++)
+        for (int index = 0; index < sampleRate * durationSeconds; index++)
         {
             float input = MathF.Sin(2f * MathF.PI * frequency * index / sampleRate) * 0.1f;
             float left = input;
             float right = input;
             filter.Process(ref left, ref right);
-            if (index >= sampleRate)
+            if (index >= sampleRate * (durationSeconds - 1))
             {
                 inputEnergy += input * input;
                 outputEnergy += left * left;

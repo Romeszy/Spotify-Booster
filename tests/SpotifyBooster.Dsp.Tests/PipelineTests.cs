@@ -5,9 +5,14 @@ public sealed class PipelineTests
     [Theory]
     [InlineData(44_100)]
     [InlineData(48_000)]
-    public void PipelineHandlesSilenceAndMaximumGainAtCommonRates(int sampleRate)
+    public void PipelineHandlesSilenceAndProtectedMaximumGainAtCommonRates(
+        int sampleRate)
     {
-        DspSettings settings = NeutralSettings() with { GainPercent = 500f, LimiterEnabled = true };
+        DspSettings settings = TransparentSettings(25f) with
+        {
+            LimiterEnabled = true,
+            LimiterCeilingDecibels = -1f,
+        };
         var pipeline = new DspPipeline(sampleRate, settings);
         float[] silence = new float[2_048];
 
@@ -19,21 +24,208 @@ public sealed class PipelineTests
         Array.Fill(maximum, 1f);
         DspMetrics metrics = pipeline.Process(maximum);
         float ceiling = GainConversion.DecibelsToFactor(-1f);
-        Assert.All(maximum, sample => Assert.InRange(Math.Abs(sample), 0f, ceiling + 0.000001f));
+
+        Assert.All(
+            maximum,
+            sample => Assert.InRange(Math.Abs(sample), 0f, ceiling + 0.000001f));
+        Assert.True(metrics.AfterMainGainPeak > 10f);
         Assert.True(metrics.LimitedFrames > 0);
         Assert.True(metrics.LimiterGainReductionDecibels > 0f);
         Assert.Equal(0, metrics.ClippedSamples);
     }
 
+    [Theory]
+    [InlineData(44_100, 20f)]
+    [InlineData(44_100, 25f)]
+    [InlineData(48_000, 20f)]
+    [InlineData(48_000, 25f)]
+    public void MinusFortyDbfsSineReceivesExactRawGainBeforeProtections(
+        int sampleRate,
+        float gainDecibels)
+    {
+        float[] buffer = CreateStereoSine(
+            sampleRate,
+            frequencyHz: 997f,
+            amplitude: GainConversion.DecibelsToFactor(-40f));
+        double inputRms = MeasureRms(buffer);
+        var pipeline = new DspPipeline(
+            sampleRate,
+            TransparentSettings(gainDecibels));
+
+        DspMetrics metrics = pipeline.Process(buffer);
+
+        double measuredGainDecibels =
+            20d * Math.Log10(MeasureRms(buffer) / inputRms);
+        float expectedPeak = GainConversion.DecibelsToFactor(-40f + gainDecibels);
+        Assert.InRange(measuredGainDecibels, gainDecibels - 0.01, gainDecibels + 0.01);
+        Assert.InRange(
+            metrics.AfterMainGainPeak,
+            expectedPeak - 0.0001f,
+            expectedPeak + 0.0001f);
+        Assert.InRange(
+            metrics.OutputPeak,
+            expectedPeak - 0.0001f,
+            expectedPeak + 0.0001f);
+        Assert.Equal(0, metrics.SoftClippedSamples);
+        Assert.Equal(0, metrics.LimitedFrames);
+        Assert.Equal(0, metrics.ClippedSamples);
+    }
+
+    [Fact]
+    public void InitialNonNeutralGainUsesConfiguredSmoothing()
+    {
+        const int sampleRate = 48_000;
+        var pipeline = new DspPipeline(
+            sampleRate,
+            TransparentSettings(25f) with
+            {
+                GainSmoothingMilliseconds = 20f,
+                OutputGainDecibels = 12f,
+            });
+        float[] buffer = [0.01f, 0.01f];
+
+        DspMetrics metrics = pipeline.Process(buffer);
+
+        Assert.InRange(metrics.AppliedMainGainDecibels, 0.001f, 0.1f);
+        Assert.InRange(buffer[0], 0.01f, 0.0103f);
+        Assert.Equal(buffer[0], buffer[1]);
+    }
+
+    [Theory]
+    [InlineData("dc-block")]
+    [InlineData("bass")]
+    [InlineData("equalizer")]
+    [InlineData("compressor")]
+    [InlineData("soft-clipper")]
+    [InlineData("limiter")]
+    public void DisabledOptionalModuleIsTransparent(string module)
+    {
+        DspSettings settings = module switch
+        {
+            "dc-block" => TransparentSettings() with
+            {
+                DcBlockEnabled = false,
+            },
+            "bass" => TransparentSettings() with
+            {
+                BassBoostEnabled = false,
+                LowShelfFrequencyHz = 35f,
+                LowShelfGainDecibels = 18f,
+            },
+            "equalizer" => TransparentSettings() with
+            {
+                EqualizerEnabled = false,
+                EqualizerLowGainDecibels = 12f,
+                EqualizerMidGainDecibels = -12f,
+                EqualizerHighGainDecibels = 12f,
+            },
+            "compressor" => TransparentSettings() with
+            {
+                CompressorEnabled = false,
+                CompressorThresholdDecibels = -60f,
+                CompressorRatio = 20f,
+                CompressorMakeupGainDecibels = 24f,
+            },
+            "soft-clipper" => TransparentSettings() with
+            {
+                SoftClipperEnabled = false,
+                SoftClipperThresholdDecibels = -18f,
+                SoftClipperDrive = 8f,
+            },
+            "limiter" => TransparentSettings() with
+            {
+                LimiterEnabled = false,
+                LimiterCeilingDecibels = -12f,
+            },
+            _ => throw new ArgumentOutOfRangeException(nameof(module)),
+        };
+        var pipeline = new DspPipeline(48_000, settings);
+        float[] original =
+        [
+            0.25f, -0.5f,
+            1.25f, -1.5f,
+            -0.75f, 0.125f,
+        ];
+        float[] buffer = (float[])original.Clone();
+
+        DspMetrics metrics = pipeline.Process(buffer);
+
+        Assert.Equal(original, buffer);
+        Assert.Equal(metrics.InputPeak, metrics.OutputPeak);
+    }
+
+    [Theory]
+    [InlineData(20f)]
+    [InlineData(25f)]
+    public void LimiterReportsRealPreProtectionGainAndFinalCeiling(
+        float gainDecibels)
+    {
+        const int sampleRate = 48_000;
+        float[] buffer = CreateStereoSine(
+            sampleRate,
+            997f,
+            GainConversion.DecibelsToFactor(-10f));
+        var pipeline = new DspPipeline(
+            sampleRate,
+            TransparentSettings(gainDecibels) with
+            {
+                LimiterEnabled = true,
+                LimiterCeilingDecibels = -1f,
+            });
+
+        DspMetrics metrics = pipeline.Process(buffer);
+
+        float expectedPreProtectionPeak =
+            GainConversion.DecibelsToFactor(-10f + gainDecibels);
+        float ceiling = GainConversion.DecibelsToFactor(-1f);
+        Assert.InRange(
+            metrics.AfterMainGainPeak,
+            expectedPreProtectionPeak - 0.001f,
+            expectedPreProtectionPeak + 0.001f);
+        Assert.True(buffer.Max(Math.Abs) <= ceiling + 0.000001f);
+        Assert.True(metrics.AfterLimiterPeak <= ceiling + 0.000001f);
+        Assert.True(metrics.OutputPeak <= ceiling + 0.000001f);
+        Assert.True(metrics.LimitedFrames > 0);
+        Assert.True(metrics.LimiterGainReductionDecibels > 0f);
+    }
+
+    [Fact]
+    public void PanicResetUsesFastSmoothingAndReturnsMainAndOutputGainToUnity()
+    {
+        const int sampleRate = 48_000;
+        var pipeline = new DspPipeline(
+            sampleRate,
+            TransparentSettings(25f) with
+            {
+                GainSmoothingMilliseconds = 0f,
+                PanicSmoothingMilliseconds = 1.5f,
+                OutputGainDecibels = 12f,
+            });
+        float amplitude = GainConversion.DecibelsToFactor(-40f);
+        float[] before = CreateStereoSine(sampleRate, 997f, amplitude);
+        DspMetrics boosted = pipeline.Process(before);
+        Assert.InRange(boosted.AppliedMainGainDecibels, 24.99f, 25.01f);
+
+        pipeline.PanicReset();
+        float[] after = CreateStereoSine(sampleRate / 20, 997f, amplitude, sampleRate);
+        DspMetrics reset = pipeline.Process(after);
+
+        Assert.InRange(reset.AppliedMainGainDecibels, -0.001f, 0.02f);
+        Assert.True(reset.OutputPeak < boosted.OutputPeak);
+        double tailRms = MeasureRms(after[^960..]);
+        double expectedRms = amplitude / Math.Sqrt(2);
+        Assert.InRange(tailRms, expectedRms * 0.99, expectedRms * 1.01);
+    }
+
     [Fact]
     public void PipelineSanitizesNonFiniteAndHugeSamples()
     {
-        var pipeline = new DspPipeline(48_000, NeutralSettings());
+        var pipeline = new DspPipeline(48_000, TransparentSettings());
         float[] buffer =
         [
             float.NaN, float.PositiveInfinity,
             float.NegativeInfinity, 1e30f,
-            -1e30f, 0.25f
+            -1e30f, 0.25f,
         ];
 
         DspMetrics metrics = pipeline.Process(buffer);
@@ -44,31 +236,97 @@ public sealed class PipelineTests
     }
 
     [Fact]
-    public void PipelineFinalOutputNeverExceedsLimiterCeiling()
+    public void OneThousandDecibelGainKeepsSilenceExactlySilent()
     {
-        var pipeline = new DspPipeline(48_000, DspSettings.DeepBass with { GainPercent = 500f });
-        var generator = new OfflineSignalGenerator();
-        float[] buffer = new float[48_000 * 2];
-        generator.Fill(buffer, OfflineSignal.Peaks, 48_000, amplitude: 4f);
+        var pipeline = new DspPipeline(
+            48_000,
+            TransparentSettings(1_000f));
+        var buffer = new float[2_048];
 
         DspMetrics metrics = pipeline.Process(buffer);
-        float ceiling = GainConversion.DecibelsToFactor(-1f);
 
-        Assert.True(buffer.Max(Math.Abs) <= ceiling + 0.000001f);
-        Assert.True(metrics.LimitedFrames > 0);
-        Assert.Equal(0, metrics.ClippedSamples);
+        Assert.All(buffer, sample => Assert.Equal(0f, sample));
+        Assert.Equal(0f, metrics.AfterMainGainPeak);
+        Assert.Equal(0, metrics.SanitizedSamples);
+        Assert.Equal(1_000f, metrics.AppliedMainGainDecibels);
     }
 
     [Fact]
-    public void PipelineReportsInputAndOutputPeaks()
+    public void OneThousandDecibelGainSaturatesTinyNonzeroSamplesWithTheirSign()
     {
-        var pipeline = new DspPipeline(48_000, NeutralSettings());
-        float[] buffer = [0.25f, -0.5f, 0.75f, -0.1f];
+        var pipeline = new DspPipeline(
+            48_000,
+            TransparentSettings(1_000f));
+        float[] buffer =
+        [
+            float.Epsilon, -float.Epsilon,
+            1e-30f, -1e-30f,
+        ];
 
         DspMetrics metrics = pipeline.Process(buffer);
 
-        Assert.Equal(0.75f, metrics.InputPeak);
-        Assert.InRange(metrics.OutputPeak, 0.7f, 0.8f);
+        Assert.Equal(
+            new float[]
+            {
+                DspPipeline.MaximumSafeMagnitude,
+                -DspPipeline.MaximumSafeMagnitude,
+                DspPipeline.MaximumSafeMagnitude,
+                -DspPipeline.MaximumSafeMagnitude,
+            },
+            buffer);
+        Assert.All(buffer, sample => Assert.True(float.IsFinite(sample)));
+        Assert.Equal(DspPipeline.MaximumSafeMagnitude, metrics.AfterMainGainPeak);
+        Assert.Equal(buffer.Length, metrics.SanitizedSamples);
+    }
+
+    [Fact]
+    public void ProtectedOneThousandDecibelGainEndsAtLimiterCeiling()
+    {
+        float ceiling = GainConversion.DecibelsToFactor(-1f);
+        var pipeline = new DspPipeline(
+            48_000,
+            TransparentSettings(1_000f) with
+            {
+                LimiterEnabled = true,
+                LimiterCeilingDecibels = -1f,
+            });
+        var buffer = new float[2_048];
+        Array.Fill(buffer, 0.25f);
+
+        DspMetrics metrics = pipeline.Process(buffer);
+
+        Assert.All(
+            buffer,
+            sample =>
+            {
+                Assert.True(float.IsFinite(sample));
+                Assert.InRange(Math.Abs(sample), 0f, ceiling + 0.000001f);
+            });
+        Assert.Equal(DspPipeline.MaximumSafeMagnitude, metrics.AfterMainGainPeak);
+        Assert.True(metrics.AfterLimiterPeak <= ceiling + 0.000001f);
+        Assert.True(metrics.OutputPeak <= ceiling + 0.000001f);
+        Assert.True(metrics.LimitedFrames > 0);
+        Assert.True(metrics.LimiterGainReductionDecibels > 0f);
+    }
+
+    [Fact]
+    public void OneThousandDecibelProcessDoesNotAllocate()
+    {
+        var pipeline = new DspPipeline(
+            48_000,
+            TransparentSettings(1_000f));
+        var buffer = new float[2_048];
+        Array.Fill(buffer, 0.001f);
+        pipeline.Process(buffer);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 100; iteration++)
+        {
+            pipeline.Process(buffer);
+        }
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(0, allocated);
     }
 
     [Fact]
@@ -84,8 +342,8 @@ public sealed class PipelineTests
         {
             pipeline.Process(buffer);
         }
-        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
         Assert.Equal(0, allocated);
     }
 
@@ -96,13 +354,48 @@ public sealed class PipelineTests
         Assert.Throws<ArgumentException>(() => pipeline.Process(new float[3]));
     }
 
-    private static DspSettings NeutralSettings() => DspSettings.Balanced with
+    private static DspSettings TransparentSettings(float mainGainDecibels = 0f) =>
+        new()
+        {
+            MainGainDecibels = mainGainDecibels,
+            GainSmoothingMilliseconds = 0f,
+            PanicSmoothingMilliseconds = 1.5f,
+            DcBlockEnabled = false,
+            BassBoostEnabled = false,
+            EqualizerEnabled = false,
+            CompressorEnabled = false,
+            SoftClipperEnabled = false,
+            LimiterEnabled = false,
+            OutputGainDecibels = 0f,
+        };
+
+    private static float[] CreateStereoSine(
+        int frameCount,
+        float frequencyHz,
+        float amplitude,
+        int sampleRate = 0)
     {
-        GainPercent = 100f,
-        GainSmoothingMilliseconds = 0f,
-        LowShelfGainDecibels = 0f,
-        EqualizerEnabled = false,
-        CompressorEnabled = false,
-        LimiterEnabled = true
-    };
+        sampleRate = sampleRate == 0 ? frameCount : sampleRate;
+        var buffer = new float[frameCount * 2];
+        for (int frame = 0; frame < frameCount; frame++)
+        {
+            float sample = amplitude
+                * MathF.Sin(2f * MathF.PI * frequencyHz * frame / sampleRate);
+            buffer[frame * 2] = sample;
+            buffer[(frame * 2) + 1] = sample;
+        }
+
+        return buffer;
+    }
+
+    private static double MeasureRms(float[] buffer)
+    {
+        double sum = 0;
+        foreach (float sample in buffer)
+        {
+            sum += sample * sample;
+        }
+
+        return Math.Sqrt(sum / buffer.Length);
+    }
 }

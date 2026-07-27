@@ -2,85 +2,168 @@
 
 ## Aucun périphérique virtuel n’apparaît
 
-- Spotify Booster n’installe aucun pilote.
-- Installez séparément un câble virtuel compatible, puis redémarrez l’application si nécessaire.
-- Cliquez sur **Actualiser**.
-- Vérifiez dans Windows que les deux côtés du câble sont actifs.
+Spotify Booster n’installe aucun pilote.
 
-L’application doit quand même démarrer sans câble ; la source reste vide.
+1. Installez le câble depuis son éditeur.
+2. Redémarrez Windows si l’installateur le demande.
+3. Vérifiez que ses endpoints sont activés dans les paramètres Son.
+4. Relancez Spotify Booster ou cliquez sur **Actualiser**.
 
-Si un câble installé n’est pas reconnu comme virtuel, l’activation reste bloquée pour éviter une route microphone → enceintes. Relevez son nom exact dans le diagnostic ; cette version n’offre pas de contournement non sécurisé.
+Pour VB-CABLE, la source attendue dans Booster est généralement **CABLE Output**. Voir [VB_CABLE_SETUP.md](VB_CABLE_SETUP.md).
 
-## Spotify est détecté mais aucun signal n’arrive
+## Le câble est installé mais la source est refusée
+
+La route exige une source mono/stéréo reconnue comme virtuelle. La détection s’appuie sur les métadonnées et des marqueurs tels que `Virtual`, `Cable`, `VB-Audio`, `VoiceMeeter`, `Loopback` ou `Streaming`.
+
+Un nom inhabituel peut être refusé par prudence. Exportez le diagnostic et relevez le nom/format exact ; la V2 n’expose pas de contournement de route non sécurisé.
+
+## Spotify est détecté, mais aucun signal n’arrive
 
 La détection du processus et le routage audio sont indépendants.
 
 1. Ouvrez le mélangeur de volume Windows.
-2. Vérifiez la sortie choisie pour Spotify.
-3. Vérifiez que la source de capture sélectionnée dans Booster est l’autre côté du même câble.
-4. Démarrez réellement une piste.
-5. Désactivez tout mode exclusif sur le câble.
-6. Vérifiez les vu-mètres et le diagnostic.
+2. Vérifiez que Spotify utilise **CABLE Input**.
+3. Vérifiez que Booster capture **CABLE Output**.
+4. Lancez réellement une piste.
+5. Vérifiez que le câble n’est pas désactivé ou monopolisé en mode exclusif.
+6. Observez le vu-mètre d’entrée et la page Diagnostic.
+
+Le moteur peut fonctionner même si la détection du processus Spotify échoue.
 
 ## Le signal contient d’autres applications
 
-Ces applications utilisent le même endpoint virtuel. Replacez-les sur leurs sorties normales dans le mélangeur Windows. Le MVP ne peut pas distinguer plusieurs applications déjà mélangées dans le câble.
+Toutes ces applications utilisent le même câble. Replacez jeux, navigateur, Discord et sons système sur leurs sorties habituelles. Booster ne sépare pas plusieurs flux déjà mélangés.
 
 ## Pas de son en sortie
 
-- choisissez un endpoint de rendu actif ;
-- une sortie reconnue comme virtuelle est refusée pour empêcher une boucle ;
-- vérifiez que la sortie n’est pas utilisée en mode exclusif ;
+- choisissez une sortie physique active et configurée en stéréo ;
+- arrêtez le moteur avant de changer de périphérique ;
+- vérifiez qu’aucune application ne monopolise la sortie en mode exclusif ;
 - testez d’abord une sortie filaire ;
-- consultez l’état et le format dans **Diagnostic**.
+- vérifiez les formats source/sortie dans Diagnostic ;
+- confirmez que le volume physique n’est pas coupé.
+
+Une sortie qui semble virtuelle est refusée afin d’éviter une boucle.
 
 ## Son haché, underruns ou overruns
 
-- augmentez la stabilité du pilote/câble et fermez les applications audio lourdes ;
 - alignez si possible le câble et la sortie sur 48 kHz ;
+- fermez les applications audio lourdes ;
 - évitez Bluetooth pendant le diagnostic ;
-- relevez les compteurs après 30 minutes ;
-- exportez le rapport.
+- désactivez temporairement les modes exclusifs ;
+- laissez tourner 30 minutes et relevez les compteurs ;
+- exportez le diagnostic.
 
-Le socle corrige la dérive à ±1 500 ppm, mais le réglage doit encore être validé sur plusieurs pilotes.
+Le moteur corrige la dérive à ±1 500 ppm, mais le calibrage matériel multi-pilote reste à valider.
 
-## Distorsion ou limiteur constamment actif
+## Distorsion ou limitation permanente
 
-- revenez à 100 % ;
-- réduisez le Bass Boost ;
-- laissez le compresseur et le limiteur actifs ;
-- augmentez progressivement ;
-- observez la réduction du limiteur.
+1. Utilisez la panique pour revenir à `0 dB`.
+2. Repassez en mode Protégé.
+3. Réduisez le Bass Boost et l’égaliseur.
+4. Dans **Réglages → Audio**, remettez le gain de sortie à `0 dB`.
+5. Augmentez ensuite par petits pas.
 
-Le moteur baisse automatiquement le gain lors d’une limitation répétée. Cela indique que les réglages sont trop agressifs pour le contenu.
+Le gain de sortie est placé après le limiteur : une valeur positive peut recréer du clipping.
 
-## Retour à 100 % ne semble pas instantané
+Le mode Protégé refuse toute valeur positive et la ramène au plus à `0 dB`. Direct et Expert brut l’autorisent, avec un avertissement visible.
 
-Le bouton panique publie la remise à zéro au prochain bloc du thread de rendu, typiquement en quelques dizaines de millisecondes. Il ne modifie pas le volume physique Windows.
+La V2 ne diminue pas automatiquement et durablement la consigne de gain. Si le gain affiché change, vérifiez un raccourci global, une action du tray, un profil ou la panique. La différence momentanée entre gain demandé et appliqué est normale pendant le lissage.
+
+## Direct ou Expert brut sature immédiatement
+
+Ces modes désactivent les étages dynamiques lors de leur sélection. Repassez en Protégé ou réactivez manuellement le soft clipper/limiteur. Expert brut n’a aucune protection cachée et autorise par défaut jusqu’à `+1000 dB`.
+
+À `+1000 dB`, le facteur mathématique demandé vaut `10^50`. Une telle amplitude brute ne tient pas dans un échantillon float32 : le DSP lisse le gain en dB, calcule en double précision et borne les magnitudes internes à `±64`. Le signal reste fini, mais le résultat est essentiellement saturé ou limité, ne décrit pas directement le volume perçu et n’apporte aucune puissance physique supplémentaire. Cette borne de stabilité ne remplace pas le limiteur : en Expert brut, la sortie peut dépasser son plafond configuré.
+
+## Le bouton panique ne semble pas instantané
+
+La commande est consommée au bloc de rendu suivant puis applique un lissage court, 1,5 ms par défaut. Elle remet les gains DSP à `0 dB` ; elle ne change pas le volume physique Windows.
 
 ## Périphérique débranché
 
-Le moteur passe à `DeviceLost`, s’arrête proprement et tente trois reconstructions espacées. Si la récupération échoue :
+Le moteur passe à `DeviceLost` et tente jusqu’à trois reconstructions. Si elles échouent :
 
 1. rebranchez le périphérique ;
-2. actualisez la liste ;
-3. resélectionnez source/sortie ;
-4. activez à nouveau à 100 %.
+2. cliquez sur **Actualiser** ;
+3. resélectionnez source et sortie ;
+4. redémarrez à `0 dB`.
 
 ## Bluetooth
 
-Bluetooth ajoute souvent 100–300 ms ou plus, change parfois de profil et peut basculer vers un mode mains libres de qualité réduite. La latence affichée par l’application n’inclut pas tout le délai radio/codec.
+Bluetooth peut ajouter 100–300 ms ou plus, changer de profil et basculer en mode mains libres. La latence affichée n’inclut pas nécessairement tout le délai radio/codec.
 
-## Spotify Microsoft Store non détecté
+## La fenêtre a disparu
 
-Le détecteur recherche tous les processus dont le nom contient `Spotify` et ne dépend pas d’un chemin. Si aucun processus n’est visible :
+Le comportement par défaut du bouton Fermer masque la fenêtre dans le tray.
 
-- vérifiez que Spotify est réellement lancé ;
-- redémarrez Spotify ;
-- consultez les erreurs d’accès dans le diagnostic.
+- double-cliquez sur l’icône Spotify Booster ;
+- utilisez `Ctrl+Alt+S` si les raccourcis globaux sont actifs ;
+- ouvrez le menu de l’icône pour restaurer ou quitter.
 
-La lecture audio reste possible même si l’indicateur de processus échoue.
+Si aucune icône n’est visible, vérifiez la zone des icônes masquées de Windows.
+
+## Spotify Booster démarre avec Windows au mauvais emplacement
+
+Le registre mémorise le chemin absolu de l’exécutable. Après déplacement :
+
+1. lancez l’exécutable depuis son nouvel emplacement ;
+2. désactivez **Démarrer avec Windows** ;
+3. réactivez l’option.
+
+L’entrée se trouve sous `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+
+## Le moteur ne démarre pas automatiquement
+
+Le démarrage automatique du traitement exige :
+
+- assistant terminé ;
+- option activée ;
+- source et sortie sauvegardées encore disponibles ;
+- route valide.
+
+Le mode **Démarrer masqué ou réduit** concerne seulement la fenêtre.
+
+## Un raccourci global ne fonctionne pas
+
+Une autre application ou Windows peut avoir réservé la combinaison.
+
+- ouvrez Diagnostic et cherchez une erreur de raccourci ;
+- désactivez puis réactivez les raccourcis globaux ;
+- fermez l’application concurrente ;
+- vérifiez les valeurs dans `settings.json` si elles ont été modifiées manuellement.
+
+Une combinaison doit contenir au moins un modificateur (`Ctrl`, `Alt`, `Shift` ou `Win`) et exactement une touche. Deux actions ne peuvent pas partager la même combinaison.
+
+## Les réglages V1 ont changé après mise à jour
+
+Le premier chargement V2 convertit le pourcentage en dB, crée `settings.schema1.backup.json`, puis réécrit `settings.json`.
+
+- `100 % → 0 dB` ;
+- `200 % → +6,0206 dB` ;
+- `500 % → +13,9794 dB`.
+
+Si la configuration est invalide, l’application utilise les réglages sûrs par défaut sans écraser automatiquement le fichier illisible.
+
+## Où sont les réglages et logs ?
+
+Mode standard :
+
+```text
+%LOCALAPPDATA%\SpotifyBooster\settings.json
+%LOCALAPPDATA%\SpotifyBooster\logs\spotify-booster.log
+```
+
+Mode portable :
+
+```text
+<dossier application>\portable.mode
+<dossier application>\Data\settings.json
+<dossier application>\Data\logs\spotify-booster.log
+```
+
+Le mode portable peut échouer si le dossier de l’application n’est pas inscriptible.
 
 ## Le rapport de diagnostic contient-il des données sensibles ?
 
-Il contient noms de périphériques, PIDs Spotify, formats, métriques et erreurs expurgées. Il n’inclut pas les IDs d’endpoints, chemins, arguments de processus ni contenu audio. Relisez tout rapport avant de le partager.
+Il contient les noms visibles des périphériques, PID Spotify, formats, métriques et erreurs expurgées. Il exclut les IDs d’endpoints, chemins, arguments et contenu audio. Relisez-le avant partage.

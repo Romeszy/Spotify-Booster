@@ -3,883 +3,1804 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="Spotify Booster"
-        Width="1080"
-        Height="760"
-        MinWidth="820"
-        MinHeight="560"
-        Background="#0B0D12"
-        Foreground="#F6F7FB"
-        FontFamily="Segoe UI Variable, Segoe UI"
+        Icon="Assets/SpotifyBooster.ico"
+        Width="1040"
+        Height="720"
+        MinWidth="880"
+        MinHeight="620"
+        Background="{DynamicResource Brush.Canvas}"
+        Foreground="{DynamicResource Brush.TextPrimary}"
+        FontFamily="{DynamicResource FontFamily.Ui}"
+        ResizeMode="CanResize"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
-        ResizeMode="CanResize">
-  <shell:WindowChrome.WindowChrome>
-    <shell:WindowChrome CaptionHeight="0"
-                        CornerRadius="10"
-                        GlassFrameThickness="0"
-                        ResizeBorderThickness="6"
-                        UseAeroCaptionButtons="False" />
-  </shell:WindowChrome.WindowChrome>
-
+        shell:WindowChrome.WindowChrome="{StaticResource WindowChrome.Standard}">
   <Window.Resources>
-    <SolidColorBrush x:Key="SurfaceBrush" Color="#12151D" />
-    <SolidColorBrush x:Key="SurfaceRaisedBrush" Color="#181C26" />
-    <SolidColorBrush x:Key="BorderBrush" Color="#292F3D" />
-    <SolidColorBrush x:Key="MutedBrush" Color="#929BAD" />
-    <SolidColorBrush x:Key="AccentBrush" Color="#1ED760" />
-    <SolidColorBrush x:Key="AccentDarkBrush" Color="#128A3C" />
-    <SolidColorBrush x:Key="WarningBrush" Color="#FFB547" />
-    <SolidColorBrush x:Key="DangerBrush" Color="#FF5D68" />
-
-    <Style TargetType="TextBlock">
-      <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
+    <Style x:Key="TopTab.Base"
+           TargetType="Button"
+           BasedOn="{StaticResource Button.Ghost}">
+      <Setter Property="MinWidth"
+              Value="118" />
+      <Setter Property="Height"
+              Value="40" />
+      <Setter Property="Margin"
+              Value="0,0,4,0" />
+      <Setter Property="HorizontalContentAlignment"
+              Value="Center" />
+      <Setter Property="BorderThickness"
+              Value="0,0,0,2" />
     </Style>
 
-    <Style x:Key="CardStyle" TargetType="Border">
-      <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
-      <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="14" />
-      <Setter Property="Padding" Value="18" />
-      <Setter Property="Margin" Value="0,0,0,14" />
+    <Style x:Key="TopTab.Control"
+           TargetType="Button"
+           BasedOn="{StaticResource TopTab.Base}">
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding CurrentPage}"
+                     Value="Dashboard">
+          <Setter Property="Background"
+                  Value="{DynamicResource Brush.SurfaceRaised}" />
+          <Setter Property="BorderBrush"
+                  Value="{DynamicResource Brush.Accent}" />
+          <Setter Property="Foreground"
+                  Value="{DynamicResource Brush.TextPrimary}" />
+        </DataTrigger>
+      </Style.Triggers>
     </Style>
 
-    <Style x:Key="NavButtonStyle" TargetType="Button">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="Foreground" Value="#C5CAD5" />
-      <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="HorizontalContentAlignment" Value="Left" />
-      <Setter Property="Padding" Value="14,11" />
-      <Setter Property="Margin" Value="0,2" />
-      <Setter Property="FontSize" Value="14" />
-      <Setter Property="Cursor" Value="Hand" />
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border x:Name="Border"
-                    Background="{TemplateBinding Background}"
-                    CornerRadius="9"
-                    Padding="{TemplateBinding Padding}">
-              <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                VerticalAlignment="Center" />
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Border" Property="Background" Value="#202532" />
-                <Setter Property="Foreground" Value="White" />
-              </Trigger>
-              <Trigger Property="IsPressed" Value="True">
-                <Setter TargetName="Border" Property="Background" Value="#293040" />
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
+    <Style x:Key="TopTab.Settings"
+           TargetType="Button"
+           BasedOn="{StaticResource TopTab.Base}">
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding CurrentPage}"
+                     Value="Settings">
+          <Setter Property="Background"
+                  Value="{DynamicResource Brush.SurfaceRaised}" />
+          <Setter Property="BorderBrush"
+                  Value="{DynamicResource Brush.Accent}" />
+          <Setter Property="Foreground"
+                  Value="{DynamicResource Brush.TextPrimary}" />
+        </DataTrigger>
+      </Style.Triggers>
     </Style>
 
-    <Style x:Key="PrimaryButtonStyle" TargetType="Button">
-      <Setter Property="Background" Value="{StaticResource AccentBrush}" />
-      <Setter Property="Foreground" Value="#07150C" />
-      <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="Padding" Value="20,13" />
-      <Setter Property="FontSize" Value="15" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="Cursor" Value="Hand" />
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border x:Name="Border"
-                    Background="{TemplateBinding Background}"
-                    CornerRadius="10"
-                    Padding="{TemplateBinding Padding}">
-              <ContentPresenter HorizontalAlignment="Center"
-                                VerticalAlignment="Center" />
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Border" Property="Opacity" Value="0.88" />
-              </Trigger>
-              <Trigger Property="IsPressed" Value="True">
-                <Setter TargetName="Border" Property="Opacity" Value="0.72" />
-              </Trigger>
-              <Trigger Property="IsEnabled" Value="False">
-                <Setter TargetName="Border" Property="Opacity" Value="0.35" />
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
+    <Style x:Key="TopTab.Diagnostics"
+           TargetType="Button"
+           BasedOn="{StaticResource TopTab.Base}">
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding CurrentPage}"
+                     Value="Diagnostics">
+          <Setter Property="Background"
+                  Value="{DynamicResource Brush.SurfaceRaised}" />
+          <Setter Property="BorderBrush"
+                  Value="{DynamicResource Brush.Accent}" />
+          <Setter Property="Foreground"
+                  Value="{DynamicResource Brush.TextPrimary}" />
+        </DataTrigger>
+      </Style.Triggers>
     </Style>
 
-    <Style x:Key="SecondaryButtonStyle" TargetType="Button">
-      <Setter Property="Background" Value="#202532" />
-      <Setter Property="Foreground" Value="#EEF1F6" />
-      <Setter Property="BorderBrush" Value="#343C4D" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="Padding" Value="14,9" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="Cursor" Value="Hand" />
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border x:Name="Border"
-                    Background="{TemplateBinding Background}"
-                    BorderBrush="{TemplateBinding BorderBrush}"
-                    BorderThickness="{TemplateBinding BorderThickness}"
-                    CornerRadius="8"
-                    Padding="{TemplateBinding Padding}">
-              <ContentPresenter HorizontalAlignment="Center"
-                                VerticalAlignment="Center" />
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Border" Property="Background" Value="#2B3242" />
-              </Trigger>
-              <Trigger Property="IsEnabled" Value="False">
-                <Setter TargetName="Border" Property="Opacity" Value="0.4" />
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
+    <Style x:Key="SetupStep.Content"
+           TargetType="Border">
+      <Setter Property="Visibility"
+              Value="Collapsed" />
+      <Setter Property="Background"
+              Value="{DynamicResource Brush.Transparent}" />
     </Style>
 
-    <Style x:Key="WindowButtonStyle" TargetType="Button">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="Foreground" Value="#AAB1C0" />
-      <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="Width" Value="42" />
-      <Setter Property="Height" Value="34" />
-      <Setter Property="FontSize" Value="15" />
-      <Setter Property="Cursor" Value="Hand" />
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border x:Name="Border"
-                    Background="{TemplateBinding Background}"
-                    CornerRadius="6">
-              <ContentPresenter HorizontalAlignment="Center"
-                                VerticalAlignment="Center" />
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Border" Property="Background" Value="#2A303E" />
-                <Setter Property="Foreground" Value="White" />
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
+    <Style x:Key="Setting.Group"
+           TargetType="Border">
+      <Setter Property="Background"
+              Value="{DynamicResource Brush.Surface}" />
+      <Setter Property="BorderBrush"
+              Value="{DynamicResource Brush.Border}" />
+      <Setter Property="BorderThickness"
+              Value="0,1,0,0" />
+      <Setter Property="Padding"
+              Value="0,18,0,22" />
     </Style>
 
-    <Style TargetType="ComboBox">
-      <Setter Property="Background" Value="#0E1118" />
-      <Setter Property="Foreground" Value="#F3F5F8" />
-      <Setter Property="BorderBrush" Value="#343C4D" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="Padding" Value="10,8" />
-      <Setter Property="MinHeight" Value="38" />
+    <Style x:Key="Setting.Check"
+           TargetType="CheckBox"
+           BasedOn="{StaticResource {x:Type CheckBox}}">
+      <Setter Property="Margin"
+              Value="0,5" />
     </Style>
 
-    <Style TargetType="Slider">
-      <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
-      <Setter Property="IsSnapToTickEnabled" Value="True" />
+    <Style x:Key="Mono.Detail"
+           TargetType="TextBlock"
+           BasedOn="{StaticResource Text.Metric}">
+      <Setter Property="Foreground"
+              Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="LineHeight"
+              Value="18" />
+      <Setter Property="TextWrapping"
+              Value="Wrap" />
     </Style>
 
-    <Style x:Key="MeterStyle" TargetType="ProgressBar">
-      <Setter Property="Height" Value="10" />
-      <Setter Property="Maximum" Value="100" />
-      <Setter Property="Background" Value="#090B10" />
-      <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="ProgressBar">
-            <Grid>
-              <Border x:Name="PART_Track"
-                      Background="{TemplateBinding Background}"
-                      CornerRadius="5" />
-              <Border x:Name="PART_Indicator"
-                      HorizontalAlignment="Left"
-                      Background="{TemplateBinding Foreground}"
-                      CornerRadius="5" />
-            </Grid>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
+    <DataTemplate x:Key="AudioDevice.NameTemplate">
+      <TextBlock Text="{Binding Name}"
+                 TextTrimming="CharacterEllipsis"
+                 ToolTip="{Binding Name}" />
+    </DataTemplate>
 
-    <Style TargetType="CheckBox">
-      <Setter Property="Foreground" Value="#E3E7EF" />
-      <Setter Property="FontSize" Value="14" />
-      <Setter Property="Margin" Value="0,6" />
-    </Style>
+    <DataTemplate x:Key="CloseBehavior.DisplayTemplate">
+      <TextBlock x:Name="CloseBehaviorName"
+                 Text="{Binding}" />
+      <DataTemplate.Triggers>
+        <DataTrigger Binding="{Binding}"
+                     Value="MinimizeToTray">
+          <Setter TargetName="CloseBehaviorName"
+                  Property="Text"
+                  Value="Masquer dans la zone de notification" />
+        </DataTrigger>
+        <DataTrigger Binding="{Binding}"
+                     Value="Ask">
+          <Setter TargetName="CloseBehaviorName"
+                  Property="Text"
+                  Value="Demander à chaque fermeture" />
+        </DataTrigger>
+        <DataTrigger Binding="{Binding}"
+                     Value="Exit">
+          <Setter TargetName="CloseBehaviorName"
+                  Property="Text"
+                  Value="Quitter l’application" />
+        </DataTrigger>
+      </DataTemplate.Triggers>
+    </DataTemplate>
   </Window.Resources>
 
-  <Border BorderBrush="#303746"
-          BorderThickness="1"
-          Background="#0B0D12">
+  <Border Style="{StaticResource Window.Frame}">
     <Grid>
       <Grid.RowDefinitions>
-        <RowDefinition Height="44" />
+        <RowDefinition Height="40" />
+        <RowDefinition Height="48" />
+        <RowDefinition Height="Auto" />
         <RowDefinition Height="*" />
+        <RowDefinition Height="64" />
       </Grid.RowDefinitions>
 
+      <!-- Custom title bar -->
       <Border Grid.Row="0"
-              Background="#10131A"
-              BorderBrush="#242A36"
-              BorderThickness="0,0,0,1"
+              Style="{StaticResource Window.TitleBar}"
               MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
-        <Grid Margin="14,0,6,0">
+        <Grid Margin="12,0,4,0">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
             <ColumnDefinition Width="Auto" />
           </Grid.ColumnDefinitions>
+
           <StackPanel Orientation="Horizontal"
                       VerticalAlignment="Center">
-            <Border Width="24"
-                    Height="24"
-                    CornerRadius="7"
-                    Background="{StaticResource AccentBrush}">
-              <TextBlock Text="S"
-                         Foreground="#08140C"
-                         FontWeight="Bold"
-                         HorizontalAlignment="Center"
-                         VerticalAlignment="Center" />
-            </Border>
-            <TextBlock Text="Spotify Booster"
-                       Margin="9,0,0,0"
-                       VerticalAlignment="Center"
+            <Viewbox Width="22"
+                     Height="22"
+                     Margin="0,0,9,0">
+              <Canvas Width="24"
+                      Height="24">
+                <Path Data="M 2,16 C 5,16 5,8 8,8 C 11,8 11,19 14,19 C 17,19 17,4 22,4"
+                      Stroke="{DynamicResource Brush.Accent}"
+                      StrokeEndLineCap="Round"
+                      StrokeStartLineCap="Round"
+                      StrokeThickness="2.4" />
+                <Path Data="M 17,4 L 22,4 L 22,9"
+                      Stroke="{DynamicResource Brush.Accent}"
+                      StrokeEndLineCap="Round"
+                      StrokeLineJoin="Round"
+                      StrokeStartLineCap="Round"
+                      StrokeThickness="2.4" />
+              </Canvas>
+            </Viewbox>
+            <TextBlock VerticalAlignment="Center"
+                       FontSize="13"
                        FontWeight="SemiBold"
-                       FontSize="13" />
-            <Border Margin="10,0,0,0"
-                    Padding="7,3"
-                    CornerRadius="5"
-                    Background="#202632">
-              <TextBlock Text="MVP"
-                         Foreground="#9FA8B8"
-                         FontSize="10"
-                         FontWeight="Bold" />
+                       Text="Spotify Booster" />
+            <TextBlock Margin="10,0,0,0"
+                       VerticalAlignment="Center"
+                       Foreground="{DynamicResource Brush.TextMuted}"
+                       FontSize="11"
+                       Text="UTILITAIRE AUDIO" />
+            <Border Margin="14,0,0,0"
+                    Padding="8,3"
+                    VerticalAlignment="Center"
+                    Background="{DynamicResource Brush.AccentMuted}"
+                    CornerRadius="9">
+              <TextBlock Foreground="{DynamicResource Brush.Accent}"
+                         FontSize="11"
+                         Text="{Binding EngineStatusText}"
+                         TextTrimming="CharacterEllipsis" />
             </Border>
           </StackPanel>
+
           <StackPanel Grid.Column="1"
                       Orientation="Horizontal"
                       shell:WindowChrome.IsHitTestVisibleInChrome="True">
-            <Button Style="{StaticResource WindowButtonStyle}"
-                    Content="—"
+            <Button Style="{StaticResource Window.TitleBarButton}"
                     AutomationProperties.Name="Réduire la fenêtre"
-                    Click="MinimizeButton_Click" />
-            <Button Style="{StaticResource WindowButtonStyle}"
-                    Content="✕"
-                    AutomationProperties.Name="Fermer la fenêtre"
-                    Click="CloseButton_Click" />
+                    Click="MinimizeButton_Click"
+                    Content="—"
+                    ToolTip="Réduire" />
+            <Button Style="{StaticResource Window.TitleBarButton}"
+                    AutomationProperties.Name="Agrandir ou restaurer la fenêtre"
+                    Click="MaximizeButton_Click"
+                    Content="□"
+                    ToolTip="Agrandir ou restaurer" />
+            <Button Style="{StaticResource Window.TitleBarCloseButton}"
+                    AutomationProperties.Name="Fermer ou masquer la fenêtre"
+                    Click="CloseButton_Click"
+                    Content="×"
+                    ToolTip="Fermer" />
           </StackPanel>
         </Grid>
       </Border>
 
-      <Grid Grid.Row="1">
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="190" />
-          <ColumnDefinition Width="*" />
-        </Grid.ColumnDefinitions>
+      <!-- Stable top navigation -->
+      <Border Grid.Row="1"
+              Background="{DynamicResource Brush.Rail}"
+              BorderBrush="{DynamicResource Brush.Border}"
+              BorderThickness="0,0,0,1">
+        <Grid Margin="16,4">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <StackPanel Orientation="Horizontal">
+            <Button Style="{StaticResource TopTab.Control}"
+                    AutomationProperties.Name="Ouvrir Contrôle"
+                    Command="{Binding NavigateCommand}"
+                    CommandParameter="Dashboard"
+                    Content="Contrôle" />
+            <Button Style="{StaticResource TopTab.Settings}"
+                    AutomationProperties.Name="Ouvrir Réglages"
+                    Command="{Binding NavigateCommand}"
+                    CommandParameter="Settings"
+                    Content="Réglages" />
+            <Button Style="{StaticResource TopTab.Diagnostics}"
+                    AutomationProperties.Name="Ouvrir Diagnostic"
+                    Command="{Binding NavigateCommand}"
+                    CommandParameter="Diagnostics"
+                    Content="Diagnostic" />
+          </StackPanel>
+          <Button Grid.Column="1"
+                  Style="{StaticResource Button.Secondary}"
+                  MinHeight="36"
+                  AutomationProperties.Name="Ouvrir l’assistant de configuration"
+                  Command="{Binding RelaunchSetupCommand}"
+                  Content="Assistant de routage" />
+        </Grid>
+      </Border>
 
-        <Border Grid.Column="0"
-                Background="#0E1117"
-                BorderBrush="#242A36"
-                BorderThickness="0,0,1,0"
-                Padding="14,18">
-          <Grid>
+      <!-- Global notification -->
+      <Border Grid.Row="2"
+              Margin="16,12,16,0"
+              Padding="12,10"
+              BorderThickness="1"
+              CornerRadius="6"
+              Visibility="{Binding HasNotification, Converter={StaticResource BooleanToVisibilityConverter}}"
+              AutomationProperties.LiveSetting="Polite">
+        <Border.Style>
+          <Style TargetType="Border">
+            <Setter Property="Background"
+                    Value="{DynamicResource Brush.InfoMuted}" />
+            <Setter Property="BorderBrush"
+                    Value="{DynamicResource Brush.Info}" />
+            <Style.Triggers>
+              <DataTrigger Binding="{Binding NotificationSeverity}"
+                           Value="Success">
+                <Setter Property="Background"
+                        Value="{DynamicResource Brush.AccentMuted}" />
+                <Setter Property="BorderBrush"
+                        Value="{DynamicResource Brush.Accent}" />
+              </DataTrigger>
+              <DataTrigger Binding="{Binding NotificationSeverity}"
+                           Value="Warning">
+                <Setter Property="Background"
+                        Value="{DynamicResource Brush.WarningMuted}" />
+                <Setter Property="BorderBrush"
+                        Value="{DynamicResource Brush.Warning}" />
+              </DataTrigger>
+              <DataTrigger Binding="{Binding NotificationSeverity}"
+                           Value="Error">
+                <Setter Property="Background"
+                        Value="{DynamicResource Brush.DangerMuted}" />
+                <Setter Property="BorderBrush"
+                        Value="{DynamicResource Brush.Danger}" />
+              </DataTrigger>
+            </Style.Triggers>
+          </Style>
+        </Border.Style>
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <Ellipse Width="8"
+                   Height="8"
+                   Margin="0,2,10,0"
+                   VerticalAlignment="Top"
+                   Fill="{Binding BorderBrush, RelativeSource={RelativeSource AncestorType=Border}}" />
+          <StackPanel Grid.Column="1">
+            <TextBlock FontWeight="SemiBold"
+                       Text="{Binding NotificationTitle}" />
+            <TextBlock Margin="0,2,0,0"
+                       Foreground="{DynamicResource Brush.TextSecondary}"
+                       FontSize="12"
+                       Text="{Binding NotificationMessage}"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+          <Button Grid.Column="2"
+                  Style="{StaticResource Button.Ghost}"
+                  Margin="12,0,0,0"
+                  MinWidth="64"
+                  AutomationProperties.Name="Fermer la notification"
+                  Command="{Binding DismissNotificationCommand}"
+                  Content="Fermer" />
+        </Grid>
+      </Border>
+
+      <!-- Page host -->
+      <Grid Grid.Row="3">
+        <!-- Control bench -->
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto"
+                      Visibility="{Binding CurrentPage, Converter={StaticResource PageVisibilityConverter}, ConverterParameter=Dashboard}">
+          <StackPanel Margin="24,20,24,24">
+            <Grid Margin="0,0,0,12">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+              <StackPanel>
+                <TextBlock Style="{StaticResource Text.Title}"
+                           Text="Banc audio" />
+                <TextBlock Style="{StaticResource Text.Secondary}"
+                           Margin="0,3,0,0"
+                           Text="{Binding RouteStatusText}" />
+              </StackPanel>
+              <StackPanel Grid.Column="1"
+                          Orientation="Horizontal"
+                          VerticalAlignment="Center">
+                <Ellipse Width="8"
+                         Height="8"
+                         Margin="0,0,8,0"
+                         Fill="{DynamicResource Brush.Accent}" />
+                <TextBlock Foreground="{DynamicResource Brush.TextSecondary}"
+                           Text="{Binding SpotifyStatusText}" />
+              </StackPanel>
+            </Grid>
+
+            <!-- Horizontal signal route -->
+            <Border Style="{StaticResource Panel.Flat}"
+                    Margin="0,0,0,14"
+                    AutomationProperties.Name="Chemin du signal audio">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="82" />
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                  <TextBlock Style="{StaticResource Text.Caption}"
+                             Text="SOURCE VIRTUELLE" />
+                  <ComboBox Margin="0,7,0,0"
+                            ItemsSource="{Binding CaptureDevices}"
+                            SelectedItem="{Binding SelectedSource}"
+                            ItemTemplate="{StaticResource AudioDevice.NameTemplate}"
+                            IsEnabled="{Binding CanChangeDevices}"
+                            MaxDropDownHeight="280"
+                            AutomationProperties.Name="Source audio virtuelle" />
+                  <TextBlock Style="{StaticResource Text.Caption}"
+                             Margin="0,6,0,0"
+                             Text="{Binding SelectedSourceStatusText}"
+                             TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+
+                <Grid Grid.Column="1"
+                      Margin="12,20">
+                  <Path VerticalAlignment="Center"
+                        Data="M 0,8 L 44,8 M 38,2 L 44,8 L 38,14"
+                        Stretch="Uniform"
+                        Stroke="{DynamicResource Brush.Accent}"
+                        StrokeEndLineCap="Round"
+                        StrokeLineJoin="Round"
+                        StrokeStartLineCap="Round"
+                        StrokeThickness="1.8" />
+                  <Border Width="34"
+                          Height="22"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Center"
+                          Background="{DynamicResource Brush.AccentMuted}"
+                          BorderBrush="{DynamicResource Brush.Accent}"
+                          BorderThickness="1"
+                          CornerRadius="5">
+                    <TextBlock HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource Brush.Accent}"
+                               FontFamily="{DynamicResource FontFamily.Mono}"
+                               FontSize="10"
+                               Text="DSP" />
+                  </Border>
+                </Grid>
+
+                <StackPanel Grid.Column="2">
+                  <TextBlock Style="{StaticResource Text.Caption}"
+                             Text="SORTIE PHYSIQUE" />
+                  <ComboBox Margin="0,7,0,0"
+                            ItemsSource="{Binding RenderDevices}"
+                            SelectedItem="{Binding SelectedOutput}"
+                            ItemTemplate="{StaticResource AudioDevice.NameTemplate}"
+                            IsEnabled="{Binding CanChangeDevices}"
+                            MaxDropDownHeight="280"
+                            AutomationProperties.Name="Sortie audio physique" />
+                  <TextBlock Style="{StaticResource Text.Caption}"
+                             Margin="0,6,0,0"
+                             Text="{Binding SelectedOutputStatusText}"
+                             TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+
+                <Button Grid.Column="3"
+                        Style="{StaticResource Button.Icon}"
+                        Margin="12,20,0,0"
+                        VerticalAlignment="Top"
+                        AutomationProperties.Name="Actualiser les périphériques audio"
+                        Command="{Binding RefreshDevicesCommand}"
+                        Content="↻"
+                        IsEnabled="{Binding CanChangeDevices}"
+                        ToolTip="Actualiser les périphériques" />
+              </Grid>
+            </Border>
+
+            <!-- Main instrument surface -->
+            <Border Background="{DynamicResource Brush.Surface}"
+                    BorderBrush="{DynamicResource Brush.Border}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="20"
+                    Margin="0,0,0,14">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="1.35*" />
+                  <ColumnDefinition Width="1" />
+                  <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Margin="0,0,22,0">
+                  <TextBlock Style="{StaticResource Text.Caption}"
+                             Text="GAIN PRINCIPAL" />
+                  <StackPanel Orientation="Horizontal"
+                              Margin="0,5,0,8">
+                    <TextBlock Style="{StaticResource Text.DisplayValue}"
+                               AutomationProperties.Name="Gain principal demandé"
+                               Text="{Binding GainDbText}" />
+                    <TextBlock Margin="14,0,0,9"
+                               VerticalAlignment="Bottom"
+                               Foreground="{DynamicResource Brush.Accent}"
+                               FontFamily="{DynamicResource FontFamily.Numeric}"
+                               FontSize="18"
+                               Text="{Binding GainPercentText}"
+                               Visibility="{Binding ShowLinearPercent, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                  </StackPanel>
+                  <Slider Minimum="0"
+                          Maximum="{Binding GainMaximumDb}"
+                          TickFrequency="0.1"
+                          SmallChange="0.1"
+                          LargeChange="1"
+                          IsSnapToTickEnabled="True"
+                          Value="{Binding MainGainDb, UpdateSourceTrigger=PropertyChanged}"
+                          AutomationProperties.Name="Gain principal en décibels"
+                          AutomationProperties.HelpText="De zéro au maximum autorisé par le mode actif" />
+                  <Grid Margin="8,3,8,0">
+                    <TextBlock Style="{StaticResource Text.Caption}"
+                               Text="0 dB · neutre" />
+                    <TextBlock Style="{StaticResource Text.Caption}"
+                               HorizontalAlignment="Right"
+                               Text="{Binding GainMaximumDb, StringFormat=+{0:0} dB}" />
+                  </Grid>
+                  <Border Style="{StaticResource Banner.Warning}"
+                          Margin="0,15,0,0"
+                          Visibility="{Binding HasSafetyWarning, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock Foreground="{DynamicResource Brush.Warning}"
+                               FontSize="12"
+                               Text="{Binding SafetyWarningText}"
+                               TextWrapping="Wrap" />
+                  </Border>
+                </StackPanel>
+
+                <Border Grid.Column="1"
+                        Background="{DynamicResource Brush.Border}" />
+
+                <StackPanel Grid.Column="2"
+                            Margin="22,0,0,0">
+                  <TextBlock Style="{StaticResource Text.Caption}"
+                             Text="MODE DU PIPELINE" />
+                  <ListBox Margin="0,8,0,0"
+                           Padding="0"
+                           Background="{DynamicResource Brush.Transparent}"
+                           BorderThickness="0"
+                           ItemsSource="{Binding ProtectionModes}"
+                           SelectedItem="{Binding ProtectionMode}"
+                           AutomationProperties.Name="Mode de protection audio">
+                    <ListBox.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <UniformGrid Columns="3" />
+                      </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemContainerStyle>
+                      <Style TargetType="ListBoxItem"
+                             BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                        <Setter Property="Margin"
+                                Value="0,0,4,0" />
+                        <Setter Property="HorizontalContentAlignment"
+                                Value="Center" />
+                      </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                      <DataTemplate>
+                        <TextBlock x:Name="ModeName"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   Text="{Binding}" />
+                        <DataTemplate.Triggers>
+                          <DataTrigger Binding="{Binding}"
+                                       Value="Protected">
+                            <Setter TargetName="ModeName"
+                                    Property="Text"
+                                    Value="Protégé" />
+                          </DataTrigger>
+                          <DataTrigger Binding="{Binding}"
+                                       Value="Direct">
+                            <Setter TargetName="ModeName"
+                                    Property="Text"
+                                    Value="Direct" />
+                          </DataTrigger>
+                          <DataTrigger Binding="{Binding}"
+                                       Value="RawExpert">
+                            <Setter TargetName="ModeName"
+                                    Property="Text"
+                                    Value="Expert brut" />
+                          </DataTrigger>
+                        </DataTemplate.Triggers>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                  <TextBlock Style="{StaticResource Text.Secondary}"
+                             Margin="0,8,0,16"
+                             MinHeight="34"
+                             Text="{Binding ProtectionModeDescription}"
+                             TextWrapping="Wrap" />
+
+                  <Grid Margin="0,0,0,5">
+                    <TextBlock Style="{StaticResource Text.Caption}"
+                               Text="ENTRÉE" />
+                    <TextBlock Style="{StaticResource Text.Metric}"
+                               HorizontalAlignment="Right"
+                               Foreground="{DynamicResource Brush.Info}"
+                               Text="{Binding InputPeakText}" />
+                  </Grid>
+                  <ProgressBar Style="{StaticResource Meter.Input}"
+                               Maximum="100"
+                               Value="{Binding InputLevel, Mode=OneWay}"
+                               AutomationProperties.Name="Niveau d’entrée" />
+                  <Grid Margin="0,12,0,5">
+                    <TextBlock Style="{StaticResource Text.Caption}"
+                               Text="SORTIE" />
+                    <TextBlock Style="{StaticResource Text.Metric}"
+                               HorizontalAlignment="Right"
+                               Foreground="{DynamicResource Brush.Accent}"
+                               Text="{Binding OutputPeakText}" />
+                  </Grid>
+                  <ProgressBar Style="{StaticResource Meter.Output}"
+                               Maximum="100"
+                               Value="{Binding OutputLevel, Mode=OneWay}"
+                               AutomationProperties.Name="Niveau de sortie" />
+                  <Grid Margin="0,12,0,0">
+                    <TextBlock Style="{StaticResource Text.Caption}"
+                               Text="{Binding ClippingStatusText}" />
+                    <TextBlock Style="{StaticResource Text.Caption}"
+                               HorizontalAlignment="Right"
+                               Text="{Binding LimiterStatusText}" />
+                  </Grid>
+                </StackPanel>
+              </Grid>
+            </Border>
+
+            <!-- Bass strip -->
+            <Border Style="{StaticResource Panel.Flat}">
+              <StackPanel>
+                <Grid Margin="0,0,0,12">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="210" />
+                  </Grid.ColumnDefinitions>
+                  <CheckBox Style="{StaticResource Setting.Check}"
+                            IsChecked="{Binding BassBoostEnabled}"
+                            AutomationProperties.Name="Activer le Bass Boost"
+                            Content="Bass Boost" />
+                  <ComboBox Grid.Column="1"
+                            ItemsSource="{Binding Profiles}"
+                            SelectedItem="{Binding SelectedProfile}"
+                            AutomationProperties.Name="Profil de Bass Boost" />
+                </Grid>
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="20" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="20" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <StackPanel>
+                    <Grid Margin="0,0,0,4">
+                      <TextBlock Style="{StaticResource Text.Caption}"
+                                 Text="RENFORCEMENT" />
+                      <TextBlock HorizontalAlignment="Right"
+                                 Foreground="{DynamicResource Brush.Accent}"
+                                 FontFamily="{DynamicResource FontFamily.Numeric}"
+                                 Text="{Binding BassGainText}" />
+                    </Grid>
+                    <Slider Minimum="0"
+                            Maximum="18"
+                            TickFrequency="0.1"
+                            SmallChange="0.1"
+                            LargeChange="1"
+                            Value="{Binding BassGainDb, UpdateSourceTrigger=PropertyChanged}"
+                            AutomationProperties.Name="Renforcement des basses en décibels" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="2">
+                    <Grid Margin="0,0,0,4">
+                      <TextBlock Style="{StaticResource Text.Caption}"
+                                 Text="FRÉQUENCE" />
+                      <TextBlock HorizontalAlignment="Right"
+                                 Foreground="{DynamicResource Brush.TextSecondary}"
+                                 FontFamily="{DynamicResource FontFamily.Numeric}"
+                                 Text="{Binding BassFrequencyText}" />
+                    </Grid>
+                    <Slider Minimum="35"
+                            Maximum="200"
+                            TickFrequency="1"
+                            SmallChange="1"
+                            LargeChange="10"
+                            Value="{Binding BassFrequencyHz, UpdateSourceTrigger=PropertyChanged}"
+                            AutomationProperties.Name="Fréquence du Bass Boost en hertz" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="4">
+                    <Grid Margin="0,0,0,4">
+                      <TextBlock Style="{StaticResource Text.Caption}"
+                                 Text="PENTE" />
+                      <TextBlock HorizontalAlignment="Right"
+                                 Foreground="{DynamicResource Brush.TextSecondary}"
+                                 FontFamily="{DynamicResource FontFamily.Numeric}"
+                                 Text="{Binding BassSlopeText}" />
+                    </Grid>
+                    <Slider Minimum="0.25"
+                            Maximum="2"
+                            TickFrequency="0.05"
+                            SmallChange="0.05"
+                            LargeChange="0.25"
+                            Value="{Binding BassSlope, UpdateSourceTrigger=PropertyChanged}"
+                            AutomationProperties.Name="Pente du filtre Bass Boost" />
+                  </StackPanel>
+                </Grid>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+
+        <!-- Seven-step setup -->
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto"
+                      Visibility="{Binding CurrentPage, Converter={StaticResource PageVisibilityConverter}, ConverterParameter=Setup}">
+          <Grid Margin="24,20,24,24">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto" />
               <RowDefinition Height="*" />
               <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <StackPanel>
-              <TextBlock Text="STATUT"
-                         Foreground="{StaticResource MutedBrush}"
-                         FontSize="10"
-                         FontWeight="Bold"
-                         Margin="12,0,0,8" />
-              <Border Background="#151A23"
-                      BorderBrush="#29303D"
-                      BorderThickness="1"
-                      CornerRadius="10"
-                      Padding="11">
-                <StackPanel>
-                  <StackPanel Orientation="Horizontal">
-                    <Ellipse Width="8"
-                             Height="8"
-                             Margin="0,0,8,0">
-                      <Ellipse.Style>
-                        <Style TargetType="Ellipse">
-                          <Setter Property="Fill" Value="#596171" />
-                          <Style.Triggers>
-                            <DataTrigger Binding="{Binding SpotifyDetected}" Value="True">
-                              <Setter Property="Fill" Value="{StaticResource AccentBrush}" />
-                            </DataTrigger>
-                          </Style.Triggers>
-                        </Style>
-                      </Ellipse.Style>
-                    </Ellipse>
-                    <TextBlock Text="{Binding SpotifyStatusText}"
-                               FontSize="11"
-                               TextTrimming="CharacterEllipsis" />
-                  </StackPanel>
-                  <StackPanel Orientation="Horizontal"
-                              Margin="0,9,0,0">
-                    <Ellipse Width="8"
-                             Height="8"
-                             Margin="0,0,8,0">
-                      <Ellipse.Style>
-                        <Style TargetType="Ellipse">
-                          <Setter Property="Fill" Value="#596171" />
-                             <Style.Triggers>
-                            <DataTrigger Binding="{Binding EngineState}" Value="Running">
-                               <Setter Property="Fill" Value="#4DA3FF" />
-                             </DataTrigger>
-                            <DataTrigger Binding="{Binding EngineState}" Value="DeviceLost">
-                              <Setter Property="Fill" Value="{StaticResource WarningBrush}" />
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding EngineState}" Value="Faulted">
-                              <Setter Property="Fill" Value="{StaticResource DangerBrush}" />
-                            </DataTrigger>
-                           </Style.Triggers>
-                        </Style>
-                      </Ellipse.Style>
-                    </Ellipse>
-                    <TextBlock Text="{Binding EngineStatusText}"
-                               FontSize="11"
-                               TextTrimming="CharacterEllipsis" />
-                  </StackPanel>
-                </StackPanel>
-              </Border>
-            </StackPanel>
-
-            <StackPanel Grid.Row="1"
-                        Margin="0,24,0,0">
-              <Button Style="{StaticResource NavButtonStyle}"
-                      Content="◉  Contrôle"
-                      Command="{Binding NavigateCommand}"
-                      CommandParameter="Dashboard" />
-              <Button Style="{StaticResource NavButtonStyle}"
-                      Content="◇  Assistant"
-                      Command="{Binding NavigateCommand}"
-                      CommandParameter="Setup" />
-              <Button Style="{StaticResource NavButtonStyle}"
-                      Content="≋  Réglages"
-                      Command="{Binding NavigateCommand}"
-                      CommandParameter="Settings" />
-              <Button Style="{StaticResource NavButtonStyle}"
-                      Content="⌁  Diagnostic"
-                      Command="{Binding NavigateCommand}"
-                      CommandParameter="Diagnostics" />
-            </StackPanel>
-
-            <Border Grid.Row="2"
-                    Background="#151922"
-                    CornerRadius="9"
-                    Padding="10">
-              <TextBlock Text="L’isolation dépend du routage manuel de Spotify vers la source virtuelle."
-                         Foreground="#8E97A7"
-                         FontSize="10"
-                         LineHeight="15"
-                         TextWrapping="Wrap" />
-            </Border>
-          </Grid>
-        </Border>
-
-        <Grid Grid.Column="1">
-          <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-          </Grid.RowDefinitions>
-
-          <Grid Margin="24,18,24,12">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="*" />
-              <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <StackPanel>
-              <TextBlock Text="{Binding PageTitle}"
-                         FontSize="24"
-                         FontWeight="SemiBold" />
-              <TextBlock Text="{Binding RouteStatusText}"
-                         Foreground="{StaticResource MutedBrush}"
-                         FontSize="12"
-                         Margin="0,4,0,0" />
-            </StackPanel>
-            <Button Grid.Column="1"
-                    Style="{StaticResource SecondaryButtonStyle}"
-                    Content="Diagnostic"
-                    Command="{Binding NavigateCommand}"
-                    CommandParameter="Diagnostics"
-                    VerticalAlignment="Center" />
-          </Grid>
-
-          <Grid Grid.Row="1">
-            <ScrollViewer VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollBarVisibility="Disabled"
-                          Visibility="{Binding CurrentPage, Converter={StaticResource PageVisibilityConverter}, ConverterParameter=Dashboard}">
-              <StackPanel Margin="24,0,24,24">
-                <Border Style="{StaticResource CardStyle}">
-                  <Grid>
-                    <Grid.ColumnDefinitions>
-                      <ColumnDefinition Width="*" />
-                      <ColumnDefinition Width="22" />
-                      <ColumnDefinition Width="*" />
-                      <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel>
-                      <TextBlock Text="SOURCE VIRTUELLE"
-                                 Foreground="{StaticResource MutedBrush}"
-                                 FontSize="10"
-                                 FontWeight="Bold"
-                                 Margin="0,0,0,7" />
-                      <ComboBox ItemsSource="{Binding CaptureDevices}"
-                                SelectedItem="{Binding SelectedSource}"
-                                DisplayMemberPath="Name"
-                                IsEnabled="{Binding CanChangeDevices}"
-                                AutomationProperties.Name="Source audio virtuelle"
-                                ToolTip="Endpoint de capture exposé par le câble audio virtuel" />
-                    </StackPanel>
-                    <TextBlock Grid.Column="1"
-                               Text="→"
-                               Foreground="#6D7687"
-                               FontSize="20"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Bottom"
-                               Margin="0,0,0,9" />
-                    <StackPanel Grid.Column="2">
-                      <TextBlock Text="SORTIE PHYSIQUE"
-                                 Foreground="{StaticResource MutedBrush}"
-                                 FontSize="10"
-                                 FontWeight="Bold"
-                                 Margin="0,0,0,7" />
-                      <ComboBox ItemsSource="{Binding RenderDevices}"
-                                SelectedItem="{Binding SelectedOutput}"
-                                DisplayMemberPath="Name"
-                                IsEnabled="{Binding CanChangeDevices}"
-                                AutomationProperties.Name="Périphérique de sortie physique"
-                                ToolTip="Casque, enceintes ou sortie physique" />
-                    </StackPanel>
-                    <Button Grid.Column="3"
-                            Style="{StaticResource SecondaryButtonStyle}"
-                            Content="↻"
-                            FontSize="18"
-                            Margin="12,22,0,0"
-                            Command="{Binding RefreshDevicesCommand}"
-                            IsEnabled="{Binding CanChangeDevices}"
-                            AutomationProperties.Name="Actualiser les périphériques"
-                            ToolTip="Actualiser les périphériques" />
-                  </Grid>
-                </Border>
-
-                <Border Style="{StaticResource CardStyle}"
-                        Padding="22">
-                  <Grid>
-                    <Grid.ColumnDefinitions>
-                      <ColumnDefinition Width="*" />
-                      <ColumnDefinition Width="220" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel>
-                      <TextBlock Text="AMPLIFICATION NUMÉRIQUE"
-                                 Foreground="{StaticResource MutedBrush}"
-                                 FontSize="10"
-                                 FontWeight="Bold" />
-                      <StackPanel Orientation="Horizontal"
-                                  Margin="0,8,0,14">
-                        <TextBlock Text="{Binding GainPercentText}"
-                                   FontSize="42"
-                                   FontWeight="SemiBold" />
-                        <TextBlock Text="{Binding GainDbText}"
-                                   Foreground="{StaticResource AccentBrush}"
-                                   FontSize="17"
-                                   Margin="14,0,0,7"
-                                   VerticalAlignment="Bottom" />
-                      </StackPanel>
-                      <Slider Minimum="100"
-                              Maximum="500"
-                              TickFrequency="1"
-                              Value="{Binding GainPercent, UpdateSourceTrigger=PropertyChanged}"
-                              AutomationProperties.Name="Amplification numérique en pourcentage"
-                              Margin="0,0,6,0" />
-                      <Grid Margin="0,6,6,0">
-                        <TextBlock Text="100 %" Foreground="#747D8D" FontSize="10" />
-                        <TextBlock Text="500 %"
-                                   Foreground="#747D8D"
-                                   FontSize="10"
-                                   HorizontalAlignment="Right" />
-                      </Grid>
-                    </StackPanel>
-                    <StackPanel Grid.Column="1"
-                                Margin="24,0,0,0"
-                                VerticalAlignment="Center">
-                      <Button Style="{StaticResource SecondaryButtonStyle}"
-                              Content="Retour à 100 %"
-                              Command="{Binding PanicCommand}"
-                              Padding="16,11" />
-                      <TextBlock Text="Bouton panique : gain neutre au prochain bloc audio."
-                                 Foreground="{StaticResource MutedBrush}"
-                                 FontSize="10"
-                                 TextWrapping="Wrap"
-                                 Margin="0,8,0,0"
-                                 TextAlignment="Center" />
-                    </StackPanel>
-                  </Grid>
-                </Border>
-
-                <Border Background="#2A1E12"
-                        BorderBrush="#765426"
-                        BorderThickness="1"
-                        CornerRadius="10"
-                        Padding="13"
-                        Margin="0,0,0,14"
-                        Visibility="{Binding HasSafetyWarning, Converter={StaticResource BooleanToVisibilityConverter}}">
-                  <TextBlock Text="{Binding SafetyWarningText}"
-                             Foreground="#FFD08A"
-                             TextWrapping="Wrap"
-                             FontSize="12" />
-                </Border>
-
-                <Grid>
-                  <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="14" />
-                    <ColumnDefinition Width="*" />
-                  </Grid.ColumnDefinitions>
-
-                  <Border Style="{StaticResource CardStyle}"
-                          Grid.Column="0">
-                    <StackPanel>
-                      <TextBlock Text="BASS BOOST"
-                                 Foreground="{StaticResource MutedBrush}"
-                                 FontSize="10"
-                                 FontWeight="Bold" />
-                      <ComboBox ItemsSource="{Binding Profiles}"
-                                SelectedItem="{Binding SelectedProfile}"
-                                Margin="0,10,0,14" />
-                      <Grid Margin="0,0,0,5">
-                        <TextBlock Text="Renforcement" FontSize="12" />
-                        <TextBlock Text="{Binding BassGainText}"
-                                   HorizontalAlignment="Right"
-                                   Foreground="{StaticResource AccentBrush}"
-                                   FontSize="12" />
-                      </Grid>
-                      <Slider Minimum="0"
-                              Maximum="12"
-                              TickFrequency="0.5"
-                              Value="{Binding BassGainDb, UpdateSourceTrigger=PropertyChanged}" />
-                      <Grid Margin="0,14,0,5">
-                        <TextBlock Text="Fréquence" FontSize="12" />
-                        <TextBlock Text="{Binding BassFrequencyText}"
-                                   HorizontalAlignment="Right"
-                                   Foreground="#C8CED9"
-                                   FontSize="12" />
-                      </Grid>
-                      <Slider Minimum="40"
-                              Maximum="200"
-                              TickFrequency="1"
-                              Value="{Binding BassFrequencyHz, UpdateSourceTrigger=PropertyChanged}" />
-                    </StackPanel>
-                  </Border>
-
-                  <Border Style="{StaticResource CardStyle}"
-                          Grid.Column="2">
-                    <StackPanel>
-                      <TextBlock Text="NIVEAUX TEMPS RÉEL"
-                                 Foreground="{StaticResource MutedBrush}"
-                                 FontSize="10"
-                                 FontWeight="Bold" />
-                      <Grid Margin="0,15,0,6">
-                        <TextBlock Text="Entrée" FontSize="12" />
-                        <TextBlock Text="{Binding InputPeakText}"
-                                   HorizontalAlignment="Right"
-                                   Foreground="#AAB2C1"
-                                   FontSize="11" />
-                      </Grid>
-                      <ProgressBar Style="{StaticResource MeterStyle}"
-                                   Value="{Binding InputLevel, Mode=OneWay}" />
-                      <Grid Margin="0,16,0,6">
-                        <TextBlock Text="Sortie" FontSize="12" />
-                        <TextBlock Text="{Binding OutputPeakText}"
-                                   HorizontalAlignment="Right"
-                                   Foreground="#AAB2C1"
-                                   FontSize="11" />
-                      </Grid>
-                      <ProgressBar Style="{StaticResource MeterStyle}"
-                                   Value="{Binding OutputLevel, Mode=OneWay}" />
-                      <Grid Margin="0,18,0,0">
-                        <TextBlock Text="{Binding ClippingStatusText}"
-                                   FontSize="11">
-                          <TextBlock.Style>
-                            <Style TargetType="TextBlock">
-                              <Setter Property="Foreground" Value="#9099A9" />
-                              <Style.Triggers>
-                                <DataTrigger Binding="{Binding ClippingDetected}" Value="True">
-                                  <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
-                                  <Setter Property="FontWeight" Value="SemiBold" />
-                                </DataTrigger>
-                              </Style.Triggers>
-                            </Style>
-                          </TextBlock.Style>
-                        </TextBlock>
-                        <TextBlock Text="{Binding LimiterStatusText}"
-                                   HorizontalAlignment="Right"
-                                   Foreground="#9CA5B5"
-                                   FontSize="11" />
-                      </Grid>
-                    </StackPanel>
-                  </Border>
-                </Grid>
-
-                <Border Background="#2A1518"
-                        BorderBrush="#6A3037"
-                        BorderThickness="1"
-                        CornerRadius="10"
-                        Padding="12"
-                        Margin="0,0,0,12"
-                        Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibilityConverter}}">
-                  <Grid>
-                    <Grid.ColumnDefinitions>
-                      <ColumnDefinition Width="*" />
-                      <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Text="{Binding LastError}"
-                               Foreground="#FFADB4"
-                               TextWrapping="Wrap"
-                               VerticalAlignment="Center" />
-                    <Button Grid.Column="1"
-                            Style="{StaticResource NavButtonStyle}"
-                            Content="Fermer"
-                            Command="{Binding DismissErrorCommand}"
-                            Padding="9,5"
-                            Margin="10,0,0,0" />
-                  </Grid>
-                </Border>
-
-                <Grid>
-                  <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="180" />
-                  </Grid.ColumnDefinitions>
-                  <Button Style="{StaticResource PrimaryButtonStyle}"
-                          Content="{Binding EngineButtonText}"
-                          Command="{Binding ToggleEngineCommand}"
-                          IsEnabled="{Binding CanActivate}"
-                          AutomationProperties.Name="Activer ou désactiver le traitement audio"
-                          FontSize="16"
-                          Padding="20,15" />
-                  <TextBlock Grid.Column="1"
-                             Text="{Binding InputSignalStatusText}"
-                             Foreground="{StaticResource MutedBrush}"
-                             TextWrapping="Wrap"
-                             FontSize="11"
-                             Margin="16,0,0,0"
-                             VerticalAlignment="Center" />
-                </Grid>
+            <Grid Margin="0,0,0,14">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="220" />
+              </Grid.ColumnDefinitions>
+              <StackPanel>
+                <TextBlock Style="{StaticResource Text.Title}"
+                           Text="{Binding SetupStepTitle}" />
+                <TextBlock Style="{StaticResource Text.Secondary}"
+                           Margin="0,3,0,0"
+                           Text="{Binding SetupProgressText}" />
               </StackPanel>
-            </ScrollViewer>
+              <ProgressBar Grid.Column="1"
+                           Height="8"
+                           Maximum="7"
+                           Value="{Binding SetupStep, Mode=OneWay}"
+                           VerticalAlignment="Center"
+                           AutomationProperties.Name="Progression de l’assistant" />
+            </Grid>
 
-            <ScrollViewer VerticalScrollBarVisibility="Auto"
-                          Visibility="{Binding CurrentPage, Converter={StaticResource PageVisibilityConverter}, ConverterParameter=Setup}">
-              <StackPanel Margin="24,0,24,24">
-                <Border Style="{StaticResource CardStyle}"
-                        Padding="22">
+            <Border Grid.Row="1"
+                    Style="{StaticResource Card}"
+                    Padding="24">
+              <Grid>
+                <!-- Step 1 -->
+                <Border>
+                  <Border.Style>
+                    <Style TargetType="Border"
+                           BasedOn="{StaticResource SetupStep.Content}">
+                      <Style.Triggers>
+                        <DataTrigger Binding="{Binding SetupStep}"
+                                     Value="1">
+                          <Setter Property="Visibility"
+                                  Value="Visible" />
+                        </DataTrigger>
+                      </Style.Triggers>
+                    </Style>
+                  </Border.Style>
                   <StackPanel>
-                    <TextBlock Text="Routage manuel, comportement réel"
-                               FontSize="18"
-                               FontWeight="SemiBold" />
-                    <TextBlock Text="Spotify Booster ne télécharge aucun pilote et ne prétend pas modifier le mixeur Windows à votre place. Le câble virtuel doit être installé séparément et Spotify doit être le seul programme qui l’utilise."
-                               Foreground="#A3ABBA"
-                               TextWrapping="Wrap"
-                               LineHeight="20"
-                               Margin="0,8,0,18" />
+                    <TextBlock Style="{StaticResource Text.Secondary}"
+                               Text="Spotify Booster traite le signal qui traverse un câble audio virtuel. Il ne capture pas Spotify par son processus et ne modifie pas vos réglages Windows à votre place."
+                               TextWrapping="Wrap" />
+                    <Viewbox Height="210"
+                             Margin="0,18,0,10"
+                             Stretch="Uniform">
+                      <Canvas Width="760"
+                              Height="180">
+                        <Path Data="M 70,92 C 105,92 105,50 140,50 C 175,50 175,126 210,126"
+                              Stroke="{DynamicResource Brush.Info}"
+                              StrokeEndLineCap="Round"
+                              StrokeStartLineCap="Round"
+                              StrokeThickness="4" />
+                        <Border Canvas.Left="18"
+                                Canvas.Top="54"
+                                Width="170"
+                                Height="76"
+                                Background="{DynamicResource Brush.SurfaceRaised}"
+                                BorderBrush="{DynamicResource Brush.Info}"
+                                BorderThickness="1"
+                                CornerRadius="10">
+                          <StackPanel HorizontalAlignment="Center"
+                                      VerticalAlignment="Center">
+                            <TextBlock FontWeight="SemiBold"
+                                       Text="Spotify" />
+                            <TextBlock Style="{StaticResource Text.Caption}"
+                                       Text="sortie choisie dans Windows" />
+                          </StackPanel>
+                        </Border>
+                        <Path Data="M 190,92 L 278,92 M 266,80 L 278,92 L 266,104"
+                              Stroke="{DynamicResource Brush.TextMuted}"
+                              StrokeEndLineCap="Round"
+                              StrokeLineJoin="Round"
+                              StrokeStartLineCap="Round"
+                              StrokeThickness="2" />
+                        <Border Canvas.Left="286"
+                                Canvas.Top="44"
+                                Width="188"
+                                Height="96"
+                                Background="{DynamicResource Brush.AccentMuted}"
+                                BorderBrush="{DynamicResource Brush.Accent}"
+                                BorderThickness="1"
+                                CornerRadius="10">
+                          <StackPanel HorizontalAlignment="Center"
+                                      VerticalAlignment="Center">
+                            <TextBlock Foreground="{DynamicResource Brush.Accent}"
+                                       FontWeight="SemiBold"
+                                       Text="VB-CABLE" />
+                            <TextBlock Style="{StaticResource Text.Caption}"
+                                       Margin="0,4,0,0"
+                                       Text="Input → Output" />
+                          </StackPanel>
+                        </Border>
+                        <Path Data="M 476,92 L 564,92 M 552,80 L 564,92 L 552,104"
+                              Stroke="{DynamicResource Brush.TextMuted}"
+                              StrokeEndLineCap="Round"
+                              StrokeLineJoin="Round"
+                              StrokeStartLineCap="Round"
+                              StrokeThickness="2" />
+                        <Border Canvas.Left="572"
+                                Canvas.Top="54"
+                                Width="170"
+                                Height="76"
+                                Background="{DynamicResource Brush.SurfaceRaised}"
+                                BorderBrush="{DynamicResource Brush.Accent}"
+                                BorderThickness="1"
+                                CornerRadius="10">
+                          <StackPanel HorizontalAlignment="Center"
+                                      VerticalAlignment="Center">
+                            <TextBlock FontWeight="SemiBold"
+                                       Text="Booster → casque" />
+                            <TextBlock Style="{StaticResource Text.Caption}"
+                                       Text="DSP puis sortie physique" />
+                          </StackPanel>
+                        </Border>
+                      </Canvas>
+                    </Viewbox>
+                    <Border Style="{StaticResource Banner.Warning}">
+                      <TextBlock Foreground="{DynamicResource Brush.Warning}"
+                                 Text="Tout programme envoyé vers le câble sera traité. Gardez les jeux, le navigateur et les sons système sur leur sortie habituelle."
+                                 TextWrapping="Wrap" />
+                    </Border>
+                  </StackPanel>
+                </Border>
 
-                    <ItemsControl>
-                      <ItemsControl.Items>
-                        <TextBlock Text="1  ·  Sélectionnez ou installez séparément un périphérique audio virtuel compatible." />
-                        <TextBlock Text="2  ·  Ouvrez le mélangeur de volume Windows." />
-                        <TextBlock Text="3  ·  Affectez uniquement Spotify à la sortie virtuelle." />
-                        <TextBlock Text="4  ·  Revenez dans Spotify Booster et actualisez les périphériques." />
-                        <TextBlock Text="5  ·  Choisissez l’endpoint de capture du câble comme source virtuelle." />
-                        <TextBlock Text="6  ·  Choisissez votre casque ou vos enceintes comme sortie." />
-                        <TextBlock Text="7  ·  Lancez une piste à faible niveau et vérifiez que « Signal reçu » apparaît." />
-                        <TextBlock Text="8  ·  Commencez impérativement à 100 %." />
-                        <TextBlock Text="9  ·  Augmentez lentement, en gardant le limiteur actif." />
-                      </ItemsControl.Items>
-                      <ItemsControl.Resources>
-                        <Style TargetType="TextBlock">
-                          <Setter Property="Foreground" Value="#DDE1E9" />
-                          <Setter Property="TextWrapping" Value="Wrap" />
-                          <Setter Property="FontSize" Value="13" />
-                          <Setter Property="Margin" Value="0,0,0,12" />
-                        </Style>
-                      </ItemsControl.Resources>
-                    </ItemsControl>
+                <!-- Step 2 -->
+                <Border>
+                  <Border.Style>
+                    <Style TargetType="Border"
+                           BasedOn="{StaticResource SetupStep.Content}">
+                      <Style.Triggers>
+                        <DataTrigger Binding="{Binding SetupStep}"
+                                     Value="2">
+                          <Setter Property="Visibility"
+                                  Value="Visible" />
+                        </DataTrigger>
+                      </Style.Triggers>
+                    </Style>
+                  </Border.Style>
+                  <StackPanel>
+                    <TextBlock Style="{StaticResource Text.Section}"
+                               Text="Téléchargez le pilote uniquement depuis son éditeur" />
+                    <TextBlock Style="{StaticResource Text.Secondary}"
+                               Margin="0,8,0,18"
+                               Text="VB-CABLE est un composant tiers. Spotify Booster ne le télécharge, ne l’installe et ne le redistribue pas. Vérifiez sa licence et redémarrez Windows si l’installateur le demande."
+                               TextWrapping="Wrap" />
+                    <Button Style="{StaticResource Button.Primary}"
+                            Width="260"
+                            HorizontalAlignment="Left"
+                            AutomationProperties.Name="Ouvrir le site officiel VB-Audio"
+                            Command="{Binding OpenVbCableWebsiteCommand}"
+                            Content="Ouvrir le site officiel VB-Audio" />
+                    <TextBlock Style="{StaticResource Text.Caption}"
+                               Margin="0,12,0,0"
+                               Text="Le navigateur s’ouvre sur vb-audio.com. Aucun téléchargement n’est lancé automatiquement." />
+                  </StackPanel>
+                </Border>
 
-                    <Grid Margin="0,10,0,0">
+                <!-- Step 3 -->
+                <Border>
+                  <Border.Style>
+                    <Style TargetType="Border"
+                           BasedOn="{StaticResource SetupStep.Content}">
+                      <Style.Triggers>
+                        <DataTrigger Binding="{Binding SetupStep}"
+                                     Value="3">
+                          <Setter Property="Visibility"
+                                  Value="Visible" />
+                        </DataTrigger>
+                      </Style.Triggers>
+                    </Style>
+                  </Border.Style>
+                  <StackPanel>
+                    <TextBlock Style="{StaticResource Text.Section}"
+                               Text="Windows doit exposer un côté rendu et un côté capture" />
+                    <Grid Margin="0,16,0,18">
                       <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="16" />
+                        <ColumnDefinition Width="*" />
                       </Grid.ColumnDefinitions>
-                      <Button Style="{StaticResource SecondaryButtonStyle}"
-                              Content="Ouvrir le mélangeur Windows"
-                              Command="{Binding OpenVolumeMixerCommand}" />
-                      <Button Grid.Column="1"
-                              Style="{StaticResource SecondaryButtonStyle}"
-                              Content="Actualiser"
+                      <Border Style="{StaticResource Panel.Flat}">
+                        <StackPanel>
+                          <TextBlock Style="{StaticResource Text.Caption}"
+                                     Text="CABLE INPUT · CÔTÉ SPOTIFY" />
+                          <TextBlock Margin="0,7,0,0"
+                                     Text="{Binding CableInputStatusText}"
+                                     TextWrapping="Wrap" />
+                        </StackPanel>
+                      </Border>
+                      <Border Grid.Column="2"
+                              Style="{StaticResource Panel.Flat}">
+                        <StackPanel>
+                          <TextBlock Style="{StaticResource Text.Caption}"
+                                     Text="CABLE OUTPUT · CÔTÉ BOOSTER" />
+                          <TextBlock Margin="0,7,0,0"
+                                     Text="{Binding CableOutputStatusText}"
+                                     TextWrapping="Wrap" />
+                        </StackPanel>
+                      </Border>
+                    </Grid>
+                    <StackPanel Orientation="Horizontal">
+                      <Button Style="{StaticResource Button.Secondary}"
+                              AutomationProperties.Name="Ouvrir les paramètres Son Windows"
+                              Command="{Binding OpenSoundSettingsCommand}"
+                              Content="Ouvrir les paramètres Son" />
+                      <Button Style="{StaticResource Button.Secondary}"
+                              Margin="10,0,0,0"
+                              AutomationProperties.Name="Actualiser les périphériques"
                               Command="{Binding RefreshDevicesCommand}"
-                              IsEnabled="{Binding CanChangeDevices}"
-                              Margin="10,0,0,0" />
-                      <Button Grid.Column="3"
-                              Style="{StaticResource PrimaryButtonStyle}"
-                              Content="Configuration comprise"
-                              Command="{Binding CompleteSetupCommand}" />
+                              Content="Actualiser" />
+                    </StackPanel>
+                  </StackPanel>
+                </Border>
+
+                <!-- Step 4 -->
+                <Border>
+                  <Border.Style>
+                    <Style TargetType="Border"
+                           BasedOn="{StaticResource SetupStep.Content}">
+                      <Style.Triggers>
+                        <DataTrigger Binding="{Binding SetupStep}"
+                                     Value="4">
+                          <Setter Property="Visibility"
+                                  Value="Visible" />
+                        </DataTrigger>
+                      </Style.Triggers>
+                    </Style>
+                  </Border.Style>
+                  <StackPanel>
+                    <TextBlock Style="{StaticResource Text.Section}"
+                               Text="Affectez manuellement Spotify au câble" />
+                    <TextBlock Style="{StaticResource Text.Secondary}"
+                               Margin="0,8,0,16"
+                               Text="Dans Mélangeur de volume, trouvez Spotify puis choisissez CABLE Input comme périphérique de sortie. Laissez toutes les autres applications sur leurs sorties habituelles."
+                               TextWrapping="Wrap" />
+                    <Border Style="{StaticResource Banner.Info}"
+                            Margin="0,0,0,18">
+                      <TextBlock Foreground="{DynamicResource Brush.Info}"
+                                 Text="Cette étape est volontairement manuelle : l’application ouvre la page Windows officielle mais ne modifie aucun routage."
+                                 TextWrapping="Wrap" />
+                    </Border>
+                    <Button Style="{StaticResource Button.Primary}"
+                            Width="260"
+                            HorizontalAlignment="Left"
+                            AutomationProperties.Name="Ouvrir le mélangeur de volume Windows"
+                            Command="{Binding OpenVolumeMixerCommand}"
+                            Content="Ouvrir le mélangeur Windows" />
+                  </StackPanel>
+                </Border>
+
+                <!-- Step 5 -->
+                <Border>
+                  <Border.Style>
+                    <Style TargetType="Border"
+                           BasedOn="{StaticResource SetupStep.Content}">
+                      <Style.Triggers>
+                        <DataTrigger Binding="{Binding SetupStep}"
+                                     Value="5">
+                          <Setter Property="Visibility"
+                                  Value="Visible" />
+                        </DataTrigger>
+                      </Style.Triggers>
+                    </Style>
+                  </Border.Style>
+                  <StackPanel>
+                    <TextBlock Style="{StaticResource Text.Secondary}"
+                               Text="Choisissez le côté capture du câble comme source, puis votre casque ou vos enceintes comme sortie."
+                               TextWrapping="Wrap" />
+                    <Grid Margin="0,16,0,12">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="20" />
+                        <ColumnDefinition Width="*" />
+                      </Grid.ColumnDefinitions>
+                      <StackPanel>
+                        <TextBlock Style="{StaticResource Text.Caption}"
+                                   Text="SOURCE VIRTUELLE" />
+                        <ComboBox Margin="0,7,0,0"
+                                  ItemsSource="{Binding CaptureDevices}"
+                                  SelectedItem="{Binding SelectedSource}"
+                                  ItemTemplate="{StaticResource AudioDevice.NameTemplate}"
+                                  AutomationProperties.Name="Source virtuelle de l’assistant" />
+                      </StackPanel>
+                      <StackPanel Grid.Column="2">
+                        <TextBlock Style="{StaticResource Text.Caption}"
+                                   Text="SORTIE PHYSIQUE" />
+                        <ComboBox Margin="0,7,0,0"
+                                  ItemsSource="{Binding RenderDevices}"
+                                  SelectedItem="{Binding SelectedOutput}"
+                                  ItemTemplate="{StaticResource AudioDevice.NameTemplate}"
+                                  AutomationProperties.Name="Sortie physique de l’assistant" />
+                      </StackPanel>
+                    </Grid>
+                    <Grid>
+                      <TextBlock Style="{StaticResource Text.Secondary}"
+                                 Text="{Binding RouteStatusText}" />
+                      <Button Style="{StaticResource Button.Secondary}"
+                              HorizontalAlignment="Right"
+                              AutomationProperties.Name="Actualiser les périphériques audio"
+                              Command="{Binding RefreshDevicesCommand}"
+                              Content="Actualiser" />
                     </Grid>
                   </StackPanel>
                 </Border>
 
-                <Border Style="{StaticResource CardStyle}">
+                <!-- Step 6 -->
+                <Border>
+                  <Border.Style>
+                    <Style TargetType="Border"
+                           BasedOn="{StaticResource SetupStep.Content}">
+                      <Style.Triggers>
+                        <DataTrigger Binding="{Binding SetupStep}"
+                                     Value="6">
+                          <Setter Property="Visibility"
+                                  Value="Visible" />
+                        </DataTrigger>
+                      </Style.Triggers>
+                    </Style>
+                  </Border.Style>
                   <StackPanel>
-                    <TextBlock Text="État actuel"
-                               FontWeight="SemiBold"
-                               FontSize="15" />
-                    <TextBlock Text="{Binding RouteStatusText}"
-                               Foreground="{StaticResource MutedBrush}"
-                               Margin="0,6,0,0" />
-                    <TextBlock Text="La détection du processus Spotify est informative. Elle ne prouve pas que le signal reçu vient uniquement de Spotify."
-                               Foreground="#FFCE82"
-                               TextWrapping="Wrap"
-                               Margin="0,10,0,0" />
+                    <TextBlock Style="{StaticResource Text.Secondary}"
+                               Text="Lancez une piste à faible volume. Le test reste à 0 dB : il vérifie le chemin, pas l’amplification."
+                               TextWrapping="Wrap" />
+                    <Grid Margin="0,16,0,14">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="18" />
+                        <ColumnDefinition Width="*" />
+                      </Grid.ColumnDefinitions>
+                      <StackPanel>
+                        <Grid Margin="0,0,0,5">
+                          <TextBlock Style="{StaticResource Text.Caption}"
+                                     Text="ENTRÉE" />
+                          <TextBlock Style="{StaticResource Text.Metric}"
+                                     HorizontalAlignment="Right"
+                                     Text="{Binding InputPeakText}" />
+                        </Grid>
+                        <ProgressBar Style="{StaticResource Meter.Input}"
+                                     Maximum="100"
+                                     Value="{Binding InputLevel, Mode=OneWay}" />
+                      </StackPanel>
+                      <StackPanel Grid.Column="2">
+                        <Grid Margin="0,0,0,5">
+                          <TextBlock Style="{StaticResource Text.Caption}"
+                                     Text="SORTIE" />
+                          <TextBlock Style="{StaticResource Text.Metric}"
+                                     HorizontalAlignment="Right"
+                                     Text="{Binding OutputPeakText}" />
+                        </Grid>
+                        <ProgressBar Style="{StaticResource Meter.Output}"
+                                     Maximum="100"
+                                     Value="{Binding OutputLevel, Mode=OneWay}" />
+                      </StackPanel>
+                    </Grid>
+                    <Grid>
+                      <TextBlock VerticalAlignment="Center"
+                                 Foreground="{DynamicResource Brush.TextSecondary}"
+                                 Text="{Binding InputSignalStatusText}" />
+                      <StackPanel HorizontalAlignment="Right"
+                                  Orientation="Horizontal">
+                        <Button Style="{StaticResource Button.Secondary}"
+                                AutomationProperties.Name="Tester le retour immédiat à zéro décibel"
+                                Command="{Binding PanicCommand}"
+                                Content="Tester Retour 0 dB" />
+                        <Button Style="{StaticResource Button.Primary}"
+                                Margin="10,0,0,0"
+                                AutomationProperties.Name="Activer ou arrêter le traitement pour le test"
+                                Command="{Binding ToggleEngineCommand}"
+                                Content="{Binding EngineButtonText}"
+                                IsEnabled="{Binding CanActivate}" />
+                      </StackPanel>
+                    </Grid>
                   </StackPanel>
                 </Border>
+
+                <!-- Step 7 -->
+                <Border>
+                  <Border.Style>
+                    <Style TargetType="Border"
+                           BasedOn="{StaticResource SetupStep.Content}">
+                      <Style.Triggers>
+                        <DataTrigger Binding="{Binding SetupStep}"
+                                     Value="7">
+                          <Setter Property="Visibility"
+                                  Value="Visible" />
+                        </DataTrigger>
+                      </Style.Triggers>
+                    </Style>
+                  </Border.Style>
+                  <StackPanel>
+                    <TextBlock Style="{StaticResource Text.Section}"
+                               Text="Le chemin est prêt à être utilisé" />
+                    <TextBlock Style="{StaticResource Text.Secondary}"
+                               Margin="0,8,0,16"
+                               Text="L’assistant termine en mode Protégé, à 0 dB, avec soft clipper et limiteur actifs. Augmentez ensuite progressivement depuis Contrôle."
+                               TextWrapping="Wrap" />
+                    <Border Style="{StaticResource Banner.Warning}"
+                            Margin="0,0,0,16">
+                      <TextBlock Foreground="{DynamicResource Brush.Warning}"
+                                 Text="Si aucun signal n’apparaît, revenez au mélangeur Windows, vérifiez que Spotify utilise CABLE Input et qu’aucune autre application ne partage ce câble."
+                                 TextWrapping="Wrap" />
+                    </Border>
+                    <StackPanel Orientation="Horizontal">
+                      <Button Style="{StaticResource Button.Secondary}"
+                              AutomationProperties.Name="Ouvrir le mélangeur Windows pour dépannage"
+                              Command="{Binding OpenVolumeMixerCommand}"
+                              Content="Revoir le routage" />
+                      <Button Style="{StaticResource Button.Secondary}"
+                              Margin="10,0,0,0"
+                              AutomationProperties.Name="Ouvrir les paramètres Son pour dépannage"
+                              Command="{Binding OpenSoundSettingsCommand}"
+                              Content="Vérifier les périphériques" />
+                    </StackPanel>
+                  </StackPanel>
+                </Border>
+              </Grid>
+            </Border>
+
+            <Grid Grid.Row="2"
+                  Margin="0,14,0,0">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+              <Button Style="{StaticResource Button.Secondary}"
+                      AutomationProperties.Name="Étape précédente"
+                      Command="{Binding PreviousSetupStepCommand}"
+                      Content="Précédent" />
+              <TextBlock Grid.Column="1"
+                         HorizontalAlignment="Center"
+                         VerticalAlignment="Center"
+                         Foreground="{DynamicResource Brush.TextMuted}"
+                         Text="{Binding SetupProgressText}" />
+              <Button Grid.Column="2"
+                      AutomationProperties.Name="Étape suivante"
+                      Command="{Binding NextSetupStepCommand}"
+                      Content="Suivant">
+                <Button.Style>
+                  <Style TargetType="Button"
+                         BasedOn="{StaticResource Button.Primary}">
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding SetupStep}"
+                                   Value="7">
+                        <Setter Property="Visibility"
+                                Value="Collapsed" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </Button.Style>
+              </Button>
+              <Button Grid.Column="2"
+                      AutomationProperties.Name="Terminer l’assistant"
+                      Command="{Binding CompleteSetupCommand}"
+                      Content="Terminer à 0 dB">
+                <Button.Style>
+                  <Style TargetType="Button"
+                         BasedOn="{StaticResource Button.Primary}">
+                    <Setter Property="Visibility"
+                            Value="Collapsed" />
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding SetupStep}"
+                                   Value="7">
+                        <Setter Property="Visibility"
+                                Value="Visible" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </Button.Style>
+              </Button>
+            </Grid>
+          </Grid>
+        </ScrollViewer>
+
+        <!-- Settings -->
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto"
+                      Visibility="{Binding CurrentPage, Converter={StaticResource PageVisibilityConverter}, ConverterParameter=Settings}">
+          <StackPanel Margin="24,20,24,28">
+            <TextBlock Style="{StaticResource Text.Title}"
+                       Text="Réglages" />
+            <TextBlock Style="{StaticResource Text.Secondary}"
+                       Margin="0,3,0,14"
+                       Text="Les changements audio sont publiés immédiatement. Les préférences de démarrage et d’interface sont sauvegardées localement." />
+
+            <Border Style="{StaticResource Setting.Group}">
+              <StackPanel>
+                <TextBlock Style="{StaticResource Text.Section}"
+                           Text="Audio" />
+                <TextBlock Style="{StaticResource Text.Secondary}"
+                           Margin="0,4,0,10"
+                           Text="Étages du pipeline et protections actives." />
+                <CheckBox Style="{StaticResource Setting.Check}"
+                          IsChecked="{Binding DcBlockEnabled}"
+                          Content="Bloquer la composante continue" />
+                <CheckBox Style="{StaticResource Setting.Check}"
+                          IsChecked="{Binding BassBoostEnabled}"
+                          Content="Bass Boost" />
+                <CheckBox Style="{StaticResource Setting.Check}"
+                          IsChecked="{Binding EqualizerEnabled}"
+                          Content="Égaliseur trois bandes" />
+                <Grid Margin="27,6,0,10">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="16" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="16" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <StackPanel>
+                    <TextBlock Style="{StaticResource Text.Caption}"
+                               Text="GRAVES" />
+                    <Slider Minimum="-12"
+                            Maximum="12"
+                            TickFrequency="0.5"
+                            Value="{Binding EqualizerLowDb}"
+                            AutomationProperties.Name="Égaliseur graves en décibels" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="2">
+                    <TextBlock Style="{StaticResource Text.Caption}"
+                               Text="MÉDIUMS" />
+                    <Slider Minimum="-12"
+                            Maximum="12"
+                            TickFrequency="0.5"
+                            Value="{Binding EqualizerMidDb}"
+                            AutomationProperties.Name="Égaliseur médiums en décibels" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="4">
+                    <TextBlock Style="{StaticResource Text.Caption}"
+                               Text="AIGUS" />
+                    <Slider Minimum="-12"
+                            Maximum="12"
+                            TickFrequency="0.5"
+                            Value="{Binding EqualizerHighDb}"
+                            AutomationProperties.Name="Égaliseur aigus en décibels" />
+                  </StackPanel>
+                </Grid>
+                <CheckBox Style="{StaticResource Setting.Check}"
+                          IsChecked="{Binding CompressorEnabled}"
+                          Content="Compresseur dynamique" />
+                <Grid Margin="27,5,0,9">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="86" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock VerticalAlignment="Center"
+                             Text="Seuil compresseur" />
+                  <Slider Grid.Column="1"
+                          Minimum="-60"
+                          Maximum="0"
+                          TickFrequency="0.5"
+                          Value="{Binding CompressorThresholdDb}" />
+                  <TextBlock Grid.Column="2"
+                             Style="{StaticResource Text.Metric}"
+                             HorizontalAlignment="Right"
+                             Text="{Binding CompressorThresholdDb, StringFormat={}{0:0.0} dB}" />
+                </Grid>
+                <Grid Margin="27,5,0,9">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="86" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock VerticalAlignment="Center"
+                             Text="Ratio" />
+                  <Slider Grid.Column="1"
+                          Minimum="1"
+                          Maximum="20"
+                          TickFrequency="0.1"
+                          Value="{Binding CompressorRatio}" />
+                  <TextBlock Grid.Column="2"
+                             Style="{StaticResource Text.Metric}"
+                             HorizontalAlignment="Right"
+                             Text="{Binding CompressorRatio, StringFormat={}{0:0.0}:1}" />
+                </Grid>
+                <Grid Margin="27,5,0,9">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="86" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock VerticalAlignment="Center"
+                             Text="Attaque" />
+                  <Slider Grid.Column="1"
+                          Minimum="0.1"
+                          Maximum="200"
+                          Value="{Binding CompressorAttackMs}" />
+                  <TextBlock Grid.Column="2"
+                             Style="{StaticResource Text.Metric}"
+                             HorizontalAlignment="Right"
+                             Text="{Binding CompressorAttackMs, StringFormat={}{0:0} ms}" />
+                </Grid>
+                <Grid Margin="27,5,0,9">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="86" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock VerticalAlignment="Center"
+                             Text="Relâchement" />
+                  <Slider Grid.Column="1"
+                          Minimum="10"
+                          Maximum="2000"
+                          Value="{Binding CompressorReleaseMs}" />
+                  <TextBlock Grid.Column="2"
+                             Style="{StaticResource Text.Metric}"
+                             HorizontalAlignment="Right"
+                             Text="{Binding CompressorReleaseMs, StringFormat={}{0:0} ms}" />
+                </Grid>
+                <Grid Margin="27,5,0,9">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="86" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock VerticalAlignment="Center"
+                             Text="Makeup gain" />
+                  <Slider Grid.Column="1"
+                          Minimum="-12"
+                          Maximum="24"
+                          Value="{Binding CompressorMakeupGainDb}" />
+                  <TextBlock Grid.Column="2"
+                             Style="{StaticResource Text.Metric}"
+                             HorizontalAlignment="Right"
+                             Text="{Binding CompressorMakeupGainDb, StringFormat={}{0:+0.0;-0.0;0.0} dB}" />
+                </Grid>
+                <CheckBox Style="{StaticResource Setting.Check}"
+                          IsChecked="{Binding SoftClipperEnabled}"
+                          Content="Soft clipper" />
+                <Grid Margin="27,5,0,9">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="86" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock VerticalAlignment="Center"
+                             Text="Seuil soft clipper" />
+                  <Slider Grid.Column="1"
+                          Minimum="-18"
+                          Maximum="-0.01"
+                          TickFrequency="0.1"
+                          Value="{Binding SoftClipperThresholdDb}" />
+                  <TextBlock Grid.Column="2"
+                             Style="{StaticResource Text.Metric}"
+                             HorizontalAlignment="Right"
+                             Text="{Binding SoftClipperThresholdDb, StringFormat={}{0:0.0} dB}" />
+                </Grid>
+                <Grid Margin="27,5,0,9">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="86" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock VerticalAlignment="Center"
+                             Text="Drive soft clipper" />
+                  <Slider Grid.Column="1"
+                          Minimum="0.5"
+                          Maximum="8"
+                          TickFrequency="0.1"
+                          Value="{Binding SoftClipperDrive}" />
+                  <TextBlock Grid.Column="2"
+                             Style="{StaticResource Text.Metric}"
+                             HorizontalAlignment="Right"
+                             Text="{Binding SoftClipperDrive, StringFormat=×{0:0.0}}" />
+                </Grid>
+                <CheckBox Style="{StaticResource Setting.Check}"
+                          IsChecked="{Binding LimiterEnabled}"
+                          Content="Limiteur de sortie" />
+                <Grid Margin="27,5,0,9">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="86" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock VerticalAlignment="Center"
+                             Text="Seuil limiteur" />
+                  <Slider Grid.Column="1"
+                          Minimum="-12"
+                          Maximum="-0.01"
+                          TickFrequency="0.1"
+                          Value="{Binding LimiterThresholdDb}" />
+                  <TextBlock Grid.Column="2"
+                             Style="{StaticResource Text.Metric}"
+                             HorizontalAlignment="Right"
+                             Text="{Binding LimiterThresholdDb, StringFormat={}{0:0.0} dBFS}" />
+                </Grid>
+                <Grid Margin="27,5,0,9">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="86" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock VerticalAlignment="Center"
+                             Text="Relâchement limiteur" />
+                  <Slider Grid.Column="1"
+                          Minimum="10"
+                          Maximum="1000"
+                          Value="{Binding LimiterReleaseMs}" />
+                  <TextBlock Grid.Column="2"
+                             Style="{StaticResource Text.Metric}"
+                             HorizontalAlignment="Right"
+                             Text="{Binding LimiterReleaseMs, StringFormat={}{0:0} ms}" />
+                </Grid>
+                <Grid Margin="27,5,0,9">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="86" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock VerticalAlignment="Center"
+                             Text="Gain de sortie" />
+                  <Slider Grid.Column="1"
+                          Minimum="-12"
+                          Maximum="12"
+                          TickFrequency="0.1"
+                          Value="{Binding OutputGainDb}" />
+                  <TextBlock Grid.Column="2"
+                             Style="{StaticResource Text.Metric}"
+                             HorizontalAlignment="Right"
+                             Text="{Binding OutputGainDb, StringFormat={}{0:+0.0;-0.0;0.0} dB}" />
+                </Grid>
+                <Grid Margin="27,5,0,9">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="86" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock VerticalAlignment="Center"
+                             Text="Lissage du gain" />
+                  <Slider Grid.Column="1"
+                          Minimum="0.5"
+                          Maximum="250"
+                          TickFrequency="0.5"
+                          Value="{Binding ParameterSmoothingMs}" />
+                  <TextBlock Grid.Column="2"
+                             Style="{StaticResource Text.Metric}"
+                             HorizontalAlignment="Right"
+                             Text="{Binding ParameterSmoothingMs, StringFormat={}{0:0.0} ms}" />
+                </Grid>
+                <Grid Margin="27,5,0,9">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="86" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock VerticalAlignment="Center"
+                             Text="Plafond Expert" />
+                  <Slider Grid.Column="1"
+                          Minimum="25"
+                          Maximum="1000"
+                          TickFrequency="25"
+                          SmallChange="1"
+                          LargeChange="25"
+                          Value="{Binding ExpertMaximumGainDb}" />
+                  <TextBlock Grid.Column="2"
+                             Style="{StaticResource Text.Metric}"
+                             HorizontalAlignment="Right"
+                             Text="{Binding ExpertMaximumGainDb, StringFormat=+{0:0.0} dB}" />
+                </Grid>
+                <CheckBox Style="{StaticResource Setting.Check}"
+                          IsChecked="{Binding HeadphonesSafetyMode}"
+                          Content="Avertissements renforcés au casque" />
+                <TextBlock Style="{StaticResource Text.Caption}"
+                           Margin="27,5,0,0"
+                           Text="Le mode Protégé conserve le soft clipper et le limiteur actifs." />
               </StackPanel>
-            </ScrollViewer>
+            </Border>
 
-            <ScrollViewer VerticalScrollBarVisibility="Auto"
-                          Visibility="{Binding CurrentPage, Converter={StaticResource PageVisibilityConverter}, ConverterParameter=Settings}">
-              <StackPanel Margin="24,0,24,24">
-                <Border Style="{StaticResource CardStyle}">
-                  <StackPanel>
-                    <TextBlock Text="Protection et dynamique"
-                               FontSize="18"
-                               FontWeight="SemiBold" />
-                    <TextBlock Text="Ces réglages s’appliquent en direct. Le limiteur est forcé au-dessus de 100 %, même si une configuration locale tente de le désactiver."
-                               Foreground="{StaticResource MutedBrush}"
-                               TextWrapping="Wrap"
-                               Margin="0,7,0,14" />
-                    <CheckBox Content="Compresseur dynamique"
-                              IsChecked="{Binding CompressorEnabled}" />
-                    <CheckBox Content="Limiteur anti-clipping (désactivation possible uniquement à 100 %)"
-                              IsChecked="{Binding LimiterEnabled}" />
-                    <CheckBox Content="Mode sécurité casque — avertissements renforcés"
-                              IsChecked="{Binding HeadphonesSafetyMode}" />
-                  </StackPanel>
-                </Border>
-
-                <Border Style="{StaticResource CardStyle}">
-                  <StackPanel>
-                    <TextBlock Text="Limites du socle actuel"
-                               FontWeight="SemiBold"
-                               FontSize="15" />
-                    <TextBlock Text="Égaliseur : une bande paramétrique interne, non exposée ici. Profils personnalisés persistants, zone de notification et démarrage Windows restent à livrer après validation matérielle du chemin audio."
-                               Foreground="#A8B0BE"
-                               TextWrapping="Wrap"
-                               LineHeight="19"
-                               Margin="0,8,0,0" />
-                  </StackPanel>
-                </Border>
+            <Border Style="{StaticResource Setting.Group}">
+              <StackPanel>
+                <TextBlock Style="{StaticResource Text.Section}"
+                           Text="Application" />
+                <TextBlock Style="{StaticResource Text.Secondary}"
+                           Margin="0,4,0,10"
+                           Text="Démarrage, fermeture et notifications système." />
+                <CheckBox Style="{StaticResource Setting.Check}"
+                          IsChecked="{Binding StartWithWindows}"
+                          Content="Démarrer avec Windows" />
+                <CheckBox Style="{StaticResource Setting.Check}"
+                          IsChecked="{Binding StartMinimized}"
+                          Content="Démarrer masqué ou réduit" />
+                <CheckBox Style="{StaticResource Setting.Check}"
+                          IsChecked="{Binding StartProcessingAutomatically}"
+                          Content="Activer automatiquement le traitement au démarrage" />
+                <CheckBox Style="{StaticResource Setting.Check}"
+                          IsChecked="{Binding WaitForDevicesOnStartup}"
+                          Content="Attendre les périphériques audio au démarrage" />
+                <CheckBox Style="{StaticResource Setting.Check}"
+                          IsChecked="{Binding WaitForSpotifyOnStartup}"
+                          Content="Attendre Spotify avant l’activation automatique" />
+                <CheckBox Style="{StaticResource Setting.Check}"
+                          IsChecked="{Binding NotificationsEnabled}"
+                          Content="Afficher les notifications importantes" />
+                <Grid Margin="0,9,0,0">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="220" />
+                    <ColumnDefinition Width="280" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock VerticalAlignment="Center"
+                             Text="Action du bouton Fermer" />
+                  <ComboBox Grid.Column="1"
+                            ItemsSource="{Binding CloseBehaviors}"
+                            SelectedItem="{Binding CloseBehavior}"
+                            ItemTemplate="{StaticResource CloseBehavior.DisplayTemplate}"
+                            AutomationProperties.Name="Comportement du bouton Fermer" />
+                  <TextBlock Grid.Column="2"
+                             Style="{StaticResource Text.Caption}"
+                             Margin="12,0,0,0"
+                             VerticalAlignment="Center"
+                             Text="MinimizeToTray masque la fenêtre ; Exit quitte réellement." />
+                </Grid>
               </StackPanel>
-            </ScrollViewer>
+            </Border>
 
-            <ScrollViewer VerticalScrollBarVisibility="Auto"
-                          Visibility="{Binding CurrentPage, Converter={StaticResource PageVisibilityConverter}, ConverterParameter=Diagnostics}">
-              <StackPanel Margin="24,0,24,24">
+            <Border Style="{StaticResource Setting.Group}">
+              <StackPanel>
+                <TextBlock Style="{StaticResource Text.Section}"
+                           Text="Interface" />
+                <TextBlock Style="{StaticResource Text.Secondary}"
+                           Margin="0,4,0,10"
+                           Text="Préférences d’accès rapide et densité d’information." />
+                <CheckBox Style="{StaticResource Setting.Check}"
+                          IsChecked="{Binding GlobalHotkeysEnabled}"
+                          Content="Activer les raccourcis globaux configurés" />
+                <Grid Margin="27,8,0,10">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="18" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <Grid>
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Style="{StaticResource Text.Caption}"
+                               Text="AUGMENTER DE 1 dB" />
+                    <TextBox Grid.Row="1"
+                             Margin="0,5,0,10"
+                             Text="{Binding IncreaseGainHotkey}" />
+                    <TextBlock Grid.Row="2"
+                               Style="{StaticResource Text.Caption}"
+                               Text="ACTIVER / DÉSACTIVER" />
+                    <TextBox Grid.Row="3"
+                             Margin="0,5,0,10"
+                             Text="{Binding ToggleProcessingHotkey}" />
+                    <TextBlock Grid.Row="4"
+                               Style="{StaticResource Text.Caption}"
+                               Text="BASS BOOST" />
+                    <TextBox Grid.Row="5"
+                             Margin="0,5,0,0"
+                             Text="{Binding ToggleBassBoostHotkey}" />
+                  </Grid>
+                  <Grid Grid.Column="2">
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Style="{StaticResource Text.Caption}"
+                               Text="RÉDUIRE DE 1 dB" />
+                    <TextBox Grid.Row="1"
+                             Margin="0,5,0,10"
+                             Text="{Binding DecreaseGainHotkey}" />
+                    <TextBlock Grid.Row="2"
+                               Style="{StaticResource Text.Caption}"
+                               Text="RETOUR À 0 dB" />
+                    <TextBox Grid.Row="3"
+                             Margin="0,5,0,10"
+                             Text="{Binding PanicResetHotkey}" />
+                    <TextBlock Grid.Row="4"
+                               Style="{StaticResource Text.Caption}"
+                               Text="AFFICHER / MASQUER" />
+                    <TextBox Grid.Row="5"
+                             Margin="0,5,0,0"
+                             Text="{Binding ToggleWindowHotkey}" />
+                  </Grid>
+                </Grid>
+                <CheckBox Style="{StaticResource Setting.Check}"
+                          IsChecked="{Binding ShowLinearPercent}"
+                          Content="Afficher l’équivalent en pourcentage linéaire" />
+                <CheckBox Style="{StaticResource Setting.Check}"
+                          IsChecked="{Binding DetailedDiagnostics}"
+                          Content="Afficher les diagnostics détaillés" />
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Setting.Group}">
+              <StackPanel>
+                <TextBlock Style="{StaticResource Text.Section}"
+                           Text="Avancé" />
+                <TextBlock Style="{StaticResource Text.Secondary}"
+                           Margin="0,4,0,12"
+                           Text="Outils de configuration manuelle. Spotify Booster ne modifie jamais silencieusement les périphériques Windows." />
+                <StackPanel Orientation="Horizontal">
+                  <Button Style="{StaticResource Button.Secondary}"
+                          Command="{Binding RelaunchSetupCommand}"
+                          Content="Relancer l’assistant" />
+                  <Button Style="{StaticResource Button.Secondary}"
+                          Margin="10,0,0,0"
+                          Command="{Binding OpenSoundSettingsCommand}"
+                          Content="Paramètres Son" />
+                  <Button Style="{StaticResource Button.Secondary}"
+                          Margin="10,0,0,0"
+                          Command="{Binding OpenVolumeMixerCommand}"
+                          Content="Mélangeur Windows" />
+                </StackPanel>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+
+        <!-- Diagnostics -->
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto"
+                      Visibility="{Binding CurrentPage, Converter={StaticResource PageVisibilityConverter}, ConverterParameter=Diagnostics}">
+          <StackPanel Margin="24,20,24,28">
+            <Grid Margin="0,0,0,14">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+              <StackPanel>
+                <TextBlock Style="{StaticResource Text.Title}"
+                           Text="Diagnostic audio" />
+                <TextBlock Style="{StaticResource Text.Secondary}"
+                           Margin="0,3,0,0"
+                           Text="État réel de chaque étage, sans masquer les limites de la route." />
+              </StackPanel>
+              <Button Grid.Column="1"
+                      Style="{StaticResource Button.Primary}"
+                      AutomationProperties.Name="Exporter le diagnostic texte"
+                      Command="{Binding ExportDiagnosticCommand}"
+                      Content="Exporter le rapport" />
+            </Grid>
+
+            <Border Background="{DynamicResource Brush.Surface}"
+                    BorderBrush="{DynamicResource Brush.Border}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="20">
+              <StackPanel>
                 <Grid>
                   <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="14" />
+                    <ColumnDefinition Width="20" />
                     <ColumnDefinition Width="*" />
                   </Grid.ColumnDefinitions>
-                  <Border Grid.Column="0"
-                          Style="{StaticResource CardStyle}">
-                    <StackPanel>
-                      <TextBlock Text="MOTEUR"
-                                 Foreground="{StaticResource MutedBrush}"
-                                 FontSize="10"
-                                 FontWeight="Bold" />
-                      <TextBlock Text="{Binding DiagnosticEngineText}"
-                                 Margin="0,8,0,0"
-                                 TextWrapping="Wrap" />
-                      <TextBlock Text="{Binding DiagnosticFormatsText}"
-                                 Foreground="#A7AFBD"
-                                 FontSize="11"
-                                 Margin="0,9,0,0"
-                                 TextWrapping="Wrap" />
-                    </StackPanel>
-                  </Border>
-                  <Border Grid.Column="2"
-                          Style="{StaticResource CardStyle}">
-                    <StackPanel>
-                      <TextBlock Text="MÉTRIQUES"
-                                 Foreground="{StaticResource MutedBrush}"
-                                 FontSize="10"
-                                 FontWeight="Bold" />
-                      <TextBlock Text="{Binding DiagnosticMetricsText}"
-                                 Foreground="#D5DAE3"
-                                 FontFamily="Cascadia Mono, Consolas"
-                                 FontSize="11"
-                                 LineHeight="18"
-                                 Margin="0,8,0,0"
-                                 TextWrapping="Wrap" />
-                    </StackPanel>
-                  </Border>
+                  <StackPanel>
+                    <TextBlock Style="{StaticResource Text.Caption}"
+                               Text="MOTEUR ET FORMATS" />
+                    <TextBlock Style="{StaticResource Mono.Detail}"
+                               Margin="0,8,0,0"
+                               Text="{Binding DiagnosticEngineText}" />
+                    <TextBlock Style="{StaticResource Mono.Detail}"
+                               Margin="0,8,0,0"
+                               Text="{Binding DiagnosticFormatsText}" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="2">
+                    <TextBlock Style="{StaticResource Text.Caption}"
+                               Text="PROCESSUS SPOTIFY" />
+                    <TextBlock Style="{StaticResource Mono.Detail}"
+                               Margin="0,8,0,0"
+                               Text="{Binding DiagnosticSpotifyText}" />
+                  </StackPanel>
                 </Grid>
+                <Separator />
 
-                <Border Style="{StaticResource CardStyle}">
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="1.1*" />
+                    <ColumnDefinition Width="20" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
                   <StackPanel>
-                    <TextBlock Text="PROCESSUS SPOTIFY"
-                               Foreground="{StaticResource MutedBrush}"
-                               FontSize="10"
-                               FontWeight="Bold" />
-                    <TextBlock Text="{Binding DiagnosticSpotifyText}"
+                    <TextBlock Style="{StaticResource Text.Caption}"
+                               Text="PIPELINE" />
+                    <TextBlock Style="{StaticResource Mono.Detail}"
                                Margin="0,8,0,0"
-                               FontFamily="Cascadia Mono, Consolas"
-                               FontSize="11"
-                               TextWrapping="Wrap" />
+                               Text="{Binding DiagnosticPipelineText}" />
                   </StackPanel>
-                </Border>
-
-                <Border Style="{StaticResource CardStyle}">
-                  <StackPanel>
-                    <TextBlock Text="ERREURS RÉCENTES"
-                               Foreground="{StaticResource MutedBrush}"
-                               FontSize="10"
-                               FontWeight="Bold" />
-                    <TextBlock Text="{Binding DiagnosticErrorsText}"
+                  <StackPanel Grid.Column="2">
+                    <TextBlock Style="{StaticResource Text.Caption}"
+                               Text="NIVEAUX PAR ÉTAGE" />
+                    <TextBlock Style="{StaticResource Mono.Detail}"
                                Margin="0,8,0,0"
-                               Foreground="#BAC1CD"
-                               FontFamily="Cascadia Mono, Consolas"
-                               FontSize="11"
-                               TextWrapping="Wrap" />
+                               Text="{Binding DiagnosticLevelsText}" />
                   </StackPanel>
-                </Border>
+                </Grid>
+                <Separator />
 
-                <StackPanel Orientation="Horizontal"
-                            HorizontalAlignment="Right">
-                  <TextBlock Text="{Binding LastExportMessage}"
-                             Foreground="{StaticResource MutedBrush}"
-                             VerticalAlignment="Center"
-                             Margin="0,0,14,0" />
-                  <Button Style="{StaticResource PrimaryButtonStyle}"
-                          Content="Exporter le rapport texte"
-                          Command="{Binding ExportDiagnosticCommand}" />
-                </StackPanel>
+                <TextBlock Style="{StaticResource Text.Caption}"
+                           Text="MÉTRIQUES TEMPS RÉEL" />
+                <TextBlock Style="{StaticResource Mono.Detail}"
+                           Margin="0,8,0,0"
+                           Text="{Binding DiagnosticMetricsText}" />
+                <Separator />
+
+                <TextBlock Style="{StaticResource Text.Caption}"
+                           Text="ERREURS RÉCENTES" />
+                <TextBlock Style="{StaticResource Mono.Detail}"
+                           Margin="0,8,0,0"
+                           Foreground="{DynamicResource Brush.TextSecondary}"
+                           Text="{Binding DiagnosticErrorsText}" />
               </StackPanel>
-            </ScrollViewer>
-          </Grid>
+            </Border>
+
+            <TextBlock Style="{StaticResource Text.Secondary}"
+                       Margin="0,12,0,0"
+                       HorizontalAlignment="Right"
+                       Text="{Binding LastExportMessage}" />
+          </StackPanel>
+        </ScrollViewer>
+      </Grid>
+
+      <!-- Persistent transport / panic strip -->
+      <Border Grid.Row="4"
+              Background="{DynamicResource Brush.Rail}"
+              BorderBrush="{DynamicResource Brush.Border}"
+              BorderThickness="0,1,0,0"
+              Padding="16,10">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <StackPanel VerticalAlignment="Center">
+            <TextBlock FontWeight="SemiBold"
+                       Text="{Binding EngineStatusText}" />
+            <TextBlock Style="{StaticResource Text.Caption}"
+                       Margin="0,2,0,0"
+                       Text="{Binding InputSignalStatusText}" />
+          </StackPanel>
+          <Button Grid.Column="1"
+                  Style="{StaticResource Button.Danger}"
+                  Margin="12,0"
+                  MinWidth="142"
+                  AutomationProperties.Name="Retour immédiat du gain à zéro décibel"
+                  Command="{Binding PanicCommand}"
+                  Content="Retour 0 dB" />
+          <Button Grid.Column="2"
+                  Style="{StaticResource Button.Primary}"
+                  MinWidth="220"
+                  AutomationProperties.Name="Activer ou désactiver le traitement audio"
+                  Command="{Binding ToggleEngineCommand}"
+                  Content="{Binding EngineButtonText}"
+                  IsEnabled="{Binding CanActivate}" />
+        </Grid>
+      </Border>
+
+      <!-- Expert confirmation overlay -->
+      <Grid Grid.RowSpan="5"
+            Panel.ZIndex="100"
+            Background="{DynamicResource Brush.Transparent}"
+            Visibility="{Binding ExpertConfirmationVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
+            KeyboardNavigation.TabNavigation="Cycle">
+        <Grid>
+          <Border Background="{DynamicResource Brush.Canvas}"
+                  Opacity="0.82" />
+          <Border Width="540"
+                  MaxWidth="540"
+                  Margin="24"
+                  HorizontalAlignment="Center"
+                  VerticalAlignment="Center"
+                  Style="{StaticResource Card}"
+                  Padding="24">
+            <StackPanel>
+              <TextBlock Style="{StaticResource Text.Title}"
+                         Foreground="{DynamicResource Brush.Warning}"
+                         Text="Activer le mode Expert brut ?" />
+              <TextBlock Style="{StaticResource Text.Secondary}"
+                         Margin="0,10,0,0"
+                         Text="Ce mode peut demander jusqu’à +1000 dB, retire la réduction automatique et n’impose ni soft clipper ni limiteur. Une telle valeur dépasse l’amplitude float32 brute : le DSP reste fini en saturant ses magnitudes internes. Elle ne procure aucune puissance physique supplémentaire."
+                         TextWrapping="Wrap" />
+              <Border Style="{StaticResource Banner.Warning}"
+                      Margin="0,16,0,18">
+                <TextBlock Foreground="{DynamicResource Brush.Warning}"
+                           Text="Commencez à 0 dB, baissez le volume physique et surveillez les vu-mètres avant toute augmentation."
+                           TextWrapping="Wrap" />
+              </Border>
+              <StackPanel HorizontalAlignment="Right"
+                          Orientation="Horizontal">
+                <Button Style="{StaticResource Button.Secondary}"
+                        AutomationProperties.Name="Annuler le mode Expert brut"
+                        Command="{Binding CancelExpertModeCommand}"
+                        Content="Annuler" />
+                <Button Style="{StaticResource Button.Danger}"
+                        Margin="10,0,0,0"
+                        AutomationProperties.Name="Confirmer le mode Expert brut"
+                        Command="{Binding ConfirmExpertModeCommand}"
+                        Content="Je comprends, activer" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
         </Grid>
       </Grid>
     </Grid>

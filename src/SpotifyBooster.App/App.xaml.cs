@@ -13,6 +13,7 @@ using SpotifyBooster.Infrastructure.Diagnostics;
 using SpotifyBooster.Infrastructure.Logging;
 using SpotifyBooster.Infrastructure.Persistence;
 using SpotifyBooster.Infrastructure.Spotify;
+using SpotifyBooster.Infrastructure.Storage;
 using SpotifyBooster.Infrastructure.Windows;
 
 namespace SpotifyBooster.App;
@@ -20,6 +21,11 @@ namespace SpotifyBooster.App;
 public partial class App : Application
 {
     private ServiceProvider? services;
+    private TrayIconService? trayIconService;
+    private GlobalHotkeyService? globalHotkeyService;
+    private bool startMinimizedRequested;
+    private int exitRequested;
+    private int minimizedNotificationShown;
     private int handlingDispatcherException;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -43,12 +49,14 @@ public partial class App : Application
                 : LogLevel.Information;
 
             var collection = new ServiceCollection();
+            AppDataPaths dataPaths = AppDataPaths.Resolve();
             collection.AddSingleton(configuration);
+            collection.AddSingleton(dataPaths);
             collection.AddLogging(builder =>
             {
                 builder.SetMinimumLevel(minimumLevel);
                 builder.AddDebug();
-                builder.AddProvider(new AsyncFileLoggerProvider());
+                builder.AddProvider(new AsyncFileLoggerProvider(dataPaths));
             });
             collection.AddSingleton<ApplicationState>();
             collection.AddSingleton<IErrorSink, InMemoryErrorSink>();
@@ -56,9 +64,12 @@ public partial class App : Application
             collection.AddSingleton<ISpotifyProcessDetector, SpotifyProcessDetector>();
             collection.AddSingleton<IDiagnosticReportService, DiagnosticReportService>();
             collection.AddSingleton<IWindowsSettingsLauncher, WindowsSettingsLauncher>();
+            collection.AddSingleton<IStartupService, StartupService>();
             collection.AddSingleton<IAudioDeviceService, NAudioDeviceService>();
             collection.AddSingleton<IAudioEngine, NAudioEngine>();
             collection.AddSingleton<IDiagnosticFileExporter, DiagnosticFileExporter>();
+            collection.AddSingleton<TrayIconService>();
+            collection.AddSingleton<GlobalHotkeyService>();
             collection.AddSingleton<MainViewModel>();
             collection.AddSingleton<MainWindow>();
 
@@ -69,8 +80,33 @@ public partial class App : Application
                     ValidateScopes = true,
                 });
             var window = services.GetRequiredService<MainWindow>();
+            var viewModel = services.GetRequiredService<MainViewModel>();
+            trayIconService = services.GetRequiredService<TrayIconService>();
+            globalHotkeyService =
+                services.GetRequiredService<GlobalHotkeyService>();
+            startMinimizedRequested = e.Args.Contains(
+                "--minimized",
+                StringComparer.OrdinalIgnoreCase);
             MainWindow = window;
+            window.InitializationCompleted +=
+                OnMainWindowInitializationCompleted;
+            if (startMinimizedRequested)
+            {
+                window.ShowActivated = false;
+                window.ShowInTaskbar = false;
+                window.WindowState = WindowState.Minimized;
+            }
+
             window.Show();
+            if (startMinimizedRequested)
+            {
+                window.Hide();
+            }
+
+            trayIconService.Initialize(window, viewModel, RequestExit);
+            globalHotkeyService.RegistrationFailed +=
+                OnHotkeyRegistrationFailed;
+            globalHotkeyService.Initialize(window, viewModel);
         }
         catch (Exception exception)
         {
@@ -85,6 +121,23 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        if (MainWindow is MainWindow window)
+        {
+            window.InitializationCompleted -=
+                OnMainWindowInitializationCompleted;
+        }
+
+        if (globalHotkeyService is not null)
+        {
+            globalHotkeyService.RegistrationFailed -=
+                OnHotkeyRegistrationFailed;
+            globalHotkeyService.Dispose();
+            globalHotkeyService = null;
+        }
+
+        trayIconService?.Dispose();
+        trayIconService = null;
+
         ServiceProvider? provider = services;
         if (provider is not null)
         {
@@ -97,6 +150,87 @@ public partial class App : Application
         TaskScheduler.UnobservedTaskException -= OnUnobservedTaskException;
         AppDomain.CurrentDomain.UnhandledException -= OnDomainUnhandledException;
         base.OnExit(e);
+    }
+
+    public void RequestExit()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(RequestExit);
+            return;
+        }
+
+        if (Interlocked.Exchange(ref exitRequested, 1) != 0)
+        {
+            return;
+        }
+
+        globalHotkeyService?.Dispose();
+        trayIconService?.Dispose();
+        if (MainWindow is MainWindow window)
+        {
+            window.RequestApplicationExit();
+        }
+
+        Shutdown();
+    }
+
+    public void NotifyMinimizedToTray()
+    {
+        MainViewModel? viewModel = services?.GetService<MainViewModel>();
+        if (viewModel?.NotificationsEnabled != true
+            || Interlocked.Exchange(ref minimizedNotificationShown, 1) != 0)
+        {
+            return;
+        }
+
+        trayIconService?.ShowBalloon(
+            "Spotify Booster reste actif",
+            "Double-cliquez sur l’icône pour restaurer la fenêtre.");
+    }
+
+    private void OnMainWindowInitializationCompleted(
+        object? sender,
+        EventArgs eventArgs)
+    {
+        if (sender is not MainWindow window)
+        {
+            return;
+        }
+
+        MainViewModel? viewModel = services?.GetService<MainViewModel>();
+        if (startMinimizedRequested || viewModel?.StartMinimized == true)
+        {
+            window.HideToTray();
+        }
+    }
+
+    private void OnHotkeyRegistrationFailed(
+        object? sender,
+        HotkeyRegistrationFailedEventArgs eventArgs)
+    {
+        string message =
+            $"Le raccourci {eventArgs.Gesture} n’a pas pu être activé : "
+            + eventArgs.Message;
+        services?.GetService<IErrorSink>()?.Report(
+            "Raccourcis globaux",
+            message);
+        services?.GetService<ILogger<App>>()?.LogWarning(
+            "Échec d’enregistrement du raccourci {SettingName} ({Gesture}), "
+            + "erreur native {NativeErrorCode}.",
+            eventArgs.SettingName,
+            eventArgs.Gesture,
+            eventArgs.NativeErrorCode);
+
+        MainViewModel? viewModel = services?.GetService<MainViewModel>();
+        if (viewModel?.NotificationsEnabled == true)
+        {
+            trayIconService?.ShowBalloon(
+                "Raccourci non disponible",
+                message,
+                System.Windows.Forms.ToolTipIcon.Warning,
+                5000);
+        }
     }
 
     private async Task DisposeServicesAsync(ServiceProvider provider)

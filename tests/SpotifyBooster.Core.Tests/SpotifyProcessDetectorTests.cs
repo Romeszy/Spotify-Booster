@@ -14,9 +14,25 @@ public sealed class SpotifyProcessDetectorTests
 
         Assert.All(
             processes,
-            process => Assert.Contains(
-                "Spotify",
-                process.ProcessName,
-                StringComparison.OrdinalIgnoreCase));
+            process => Assert.True(
+                SpotifyProcessDetector.IsSpotifyProcessName(
+                    process.ProcessName)));
+    }
+
+    [Theory]
+    [InlineData("Spotify", true)]
+    [InlineData("SPOTIFY", true)]
+    [InlineData("SpotifyAB.SpotifyMusic", true)]
+    [InlineData("SpotifyAB.SpotifyMusic_1.250.0", true)]
+    [InlineData("SpotifyBooster.App", false)]
+    [InlineData("FakeSpotify", false)]
+    [InlineData("SpotifyHelper", false)]
+    public void ProcessNameFilter_DoesNotConfuseBoosterWithSpotify(
+        string processName,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            SpotifyProcessDetector.IsSpotifyProcessName(processName));
     }
 }

@@ -2,7 +2,8 @@ namespace SpotifyBooster.Dsp;
 
 public sealed class GainSmoother
 {
-    private readonly float _coefficient;
+    private readonly int sampleRate;
+    private float coefficient;
     private float _current;
     private float _target;
 
@@ -10,11 +11,10 @@ public sealed class GainSmoother
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
 
+        this.sampleRate = sampleRate;
         _current = SanitizeGain(initialGain);
         _target = _current;
-        _coefficient = smoothingMilliseconds <= 0f
-            ? 0f
-            : MathF.Exp(-1f / (sampleRate * smoothingMilliseconds * 0.001f));
+        Configure(smoothingMilliseconds);
     }
 
     public float Current => _current;
@@ -25,9 +25,27 @@ public sealed class GainSmoother
         set => _target = SanitizeGain(value);
     }
 
+    public void Configure(float smoothingMilliseconds)
+    {
+        coefficient = !float.IsFinite(smoothingMilliseconds) || smoothingMilliseconds <= 0f
+            ? 0f
+            : MathF.Exp(-1f / (sampleRate * smoothingMilliseconds * 0.001f));
+    }
+
+    public void SetTarget(float gain, float smoothingMilliseconds)
+    {
+        Configure(smoothingMilliseconds);
+        Target = gain;
+    }
+
     public float Next()
     {
-        _current = _target + ((_current - _target) * _coefficient);
+        _current = _target + ((_current - _target) * coefficient);
+        if (Math.Abs(_target - _current) < 1e-7f)
+        {
+            _current = _target;
+        }
+
         return _current;
     }
 

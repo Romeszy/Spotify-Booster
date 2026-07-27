@@ -20,11 +20,13 @@ public sealed class NAudioEngine : IAudioEngine
     private readonly IErrorSink errorSink;
     private readonly SemaphoreSlim lifecycle = new(1, 1);
     private readonly RecoveryTaskGate recovery = new();
+    private readonly Timer metricsTimer;
     private AudioEngineStatus status = AudioEngineStatus.Stopped;
     private AudioProcessingSettings currentSettings = new();
     private AudioRoute? currentRoute;
     private AudioGraph? graph;
     private long operationGeneration;
+    private int consumingMetrics;
     private int stopping;
     private int disposed;
 
@@ -34,13 +36,16 @@ public sealed class NAudioEngine : IAudioEngine
     {
         this.logger = logger;
         this.errorSink = errorSink;
+        metricsTimer = new Timer(
+            static state => ((NAudioEngine)state!).ConsumeDspMetrics(),
+            this,
+            TimeSpan.FromMilliseconds(100),
+            TimeSpan.FromMilliseconds(100));
     }
 
     public event EventHandler<AudioEngineStatus>? StatusChanged;
 
     public event EventHandler<AudioEngineMetrics>? MetricsUpdated;
-
-    public event EventHandler<AutomaticGainReductionEventArgs>? GainAutomaticallyReduced;
 
     public AudioEngineStatus Status => Volatile.Read(ref status);
 
@@ -106,12 +111,12 @@ public sealed class NAudioEngine : IAudioEngine
         ThrowIfDisposed();
         AudioProcessingSettings safe = Volatile.Read(ref currentSettings) with
         {
-            GainPercent = AudioProcessingSettings.MinimumGainPercent,
-            LimiterEnabled = true,
+            MainGainDb = AudioProcessingSettings.MinimumGainDb,
+            OutputGainDb = 0,
         };
         Volatile.Write(ref currentSettings, safe);
         Volatile.Read(ref graph)?.DspProvider.RequestPanicReset();
-        logger.LogWarning("Retour d’urgence à 100 % demandé.");
+        logger.LogWarning("Retour d’urgence à 0 dB demandé.");
     }
 
     public async ValueTask DisposeAsync()
@@ -123,6 +128,7 @@ public sealed class NAudioEngine : IAudioEngine
 
         Interlocked.Increment(ref operationGeneration);
         recovery.SetStopping(true);
+        await metricsTimer.DisposeAsync();
         await recovery.DisposeAsync();
         await lifecycle.WaitAsync();
         try
@@ -325,7 +331,7 @@ public sealed class NAudioEngine : IAudioEngine
         }
     }
 
-    private AudioGraph CreateGraph(
+    private static AudioGraph CreateGraph(
         AudioRoute route,
         AudioProcessingSettings settings)
     {
@@ -399,9 +405,7 @@ public sealed class NAudioEngine : IAudioEngine
                 TargetBuffer);
             var dspProvider = new DspSampleProvider(
                 resampler,
-                settings,
-                OnDspMetrics,
-                OnAutomaticGainReduction);
+                settings);
             output = new WasapiOut(
                 outputDevice,
                 AudioClientShareMode.Shared,
@@ -661,83 +665,82 @@ public sealed class NAudioEngine : IAudioEngine
         }
     }
 
-    private void OnDspMetrics(DspReadSnapshot snapshot)
+    private void ConsumeDspMetrics()
     {
-        AudioGraph? currentGraph = Volatile.Read(ref graph);
-        if (currentGraph is null)
+        if (Interlocked.Exchange(ref consumingMetrics, 1) != 0)
         {
             return;
         }
 
-        var metrics = new AudioEngineMetrics(
-            DateTimeOffset.UtcNow,
-            snapshot.Metrics.InputPeak,
-            snapshot.Metrics.OutputPeak,
-            snapshot.Metrics.LimiterGainReductionDecibels,
-            snapshot.Metrics.InputPeak >= 0.0001f,
-            IsClippingDetected(snapshot.Metrics),
-            snapshot.ClipCount,
-            snapshot.BufferCount,
-            currentGraph.Buffer.UnderrunCount,
-            currentGraph.Buffer.OverrunCount,
-            currentGraph.DspProvider.WaveFormat.SampleRate,
-            currentGraph.DspProvider.WaveFormat.Channels,
-            CaptureLatencyMilliseconds,
-            CaptureLatencyMilliseconds
-                + RenderLatencyMilliseconds
-                + currentGraph.Buffer.BufferedDuration.TotalMilliseconds,
-            snapshot.ProcessingLoadPercent);
-        AudioEngineStatus currentStatus = Status;
-        Volatile.Write(
-            ref status,
-            currentStatus with
-            {
-                Metrics = metrics,
-            });
         try
         {
-            MetricsUpdated?.Invoke(this, metrics);
+            AudioGraph? currentGraph = Volatile.Read(ref graph);
+            if (currentGraph is null
+                || !currentGraph.DspProvider.TryConsumeMetrics(
+                    out DspReadSnapshot snapshot))
+            {
+                return;
+            }
+
+            var metrics = new AudioEngineMetrics(
+                DateTimeOffset.UtcNow,
+                snapshot.Metrics.InputPeak,
+                snapshot.Metrics.AfterMainGainPeak,
+                snapshot.Metrics.AfterBassBoostPeak,
+                snapshot.Metrics.AfterCompressorPeak,
+                snapshot.Metrics.AfterLimiterPeak,
+                snapshot.Metrics.OutputPeak,
+                snapshot.RequestedMainGainDb,
+                snapshot.Metrics.AppliedMainGainDecibels,
+                SpotifyBooster.Dsp.GainConversion.DecibelsToFactorDouble(
+                    snapshot.Metrics.AppliedMainGainDecibels),
+                snapshot.Metrics.CompressorGainReductionDecibels,
+                snapshot.Metrics.LimiterGainReductionDecibels,
+                snapshot.Metrics.InputPeak >= 0.0001f,
+                IsClippingDetected(snapshot.Metrics),
+                snapshot.ClipCount,
+                snapshot.SoftClipCount,
+                snapshot.LimitedFrameCount,
+                snapshot.SanitizedSampleCount,
+                snapshot.BufferCount,
+                currentGraph.Buffer.UnderrunCount,
+                currentGraph.Buffer.OverrunCount,
+                currentGraph.DspProvider.WaveFormat.SampleRate,
+                currentGraph.DspProvider.WaveFormat.Channels,
+                CaptureLatencyMilliseconds,
+                CaptureLatencyMilliseconds
+                    + RenderLatencyMilliseconds
+                    + currentGraph.Buffer.BufferedDuration.TotalMilliseconds,
+                snapshot.ProcessingLoadPercent,
+                DateTimeOffset.UtcNow - currentGraph.StartedAt);
+            AudioEngineStatus currentStatus = Status;
+            Volatile.Write(
+                ref status,
+                currentStatus with
+                {
+                    Metrics = metrics,
+                });
+            try
+            {
+                MetricsUpdated?.Invoke(this, metrics);
+            }
+            catch (Exception exception)
+            {
+                logger.LogError(
+                    exception,
+                    "Un abonné aux métriques audio a échoué ; le moteur continue.");
+                errorSink.Report("Audio", "Un abonné aux métriques audio a échoué.");
+            }
         }
-        catch (Exception exception)
+        finally
         {
-            logger.LogError(
-                exception,
-                "Un abonné aux métriques audio a échoué ; le thread de rendu continue.");
-            errorSink.Report("Audio", "Un abonné aux métriques audio a échoué.");
+            Volatile.Write(ref consumingMetrics, 0);
         }
     }
 
     internal static bool IsClippingDetected(SpotifyBooster.Dsp.DspMetrics metrics)
     {
         return metrics.ClippedSamples > 0;
-    }
-
-    private void OnAutomaticGainReduction(int gainPercent)
-    {
-        AudioProcessingSettings reduced = Volatile.Read(ref currentSettings) with
-        {
-            GainPercent = gainPercent,
-            LimiterEnabled = true,
-        };
-        Volatile.Write(ref currentSettings, reduced);
-        logger.LogWarning(
-            "Gain réduit automatiquement à {GainPercent} % après limitation répétée.",
-            gainPercent);
-        try
-        {
-            GainAutomaticallyReduced?.Invoke(
-                this,
-                new AutomaticGainReductionEventArgs(gainPercent));
-        }
-        catch (Exception exception)
-        {
-            logger.LogError(
-                exception,
-                "Un abonné à la réduction automatique du gain a échoué.");
-            errorSink.Report(
-                "Audio",
-                "La notification de réduction automatique du gain a échoué.");
-        }
     }
 
     private void PublishStatus(
@@ -775,6 +778,8 @@ public sealed class NAudioEngine : IAudioEngine
         var wrapper = new AppSettings
         {
             FirstRunCompleted = true,
+            ExpertModeAcknowledged =
+                settings.Mode == AudioProtectionMode.RawExpert,
             Processing = settings,
         };
         SettingsValidationResult validation = SettingsValidator.Validate(wrapper);
@@ -827,6 +832,7 @@ public sealed class NAudioEngine : IAudioEngine
             DspProvider = dspProvider;
             SourceFormat = sourceFormat;
             OutputFormat = outputFormat;
+            StartedAt = DateTimeOffset.UtcNow;
         }
 
         public MMDevice SourceDevice { get; }
@@ -846,6 +852,8 @@ public sealed class NAudioEngine : IAudioEngine
         public string SourceFormat { get; }
 
         public string OutputFormat { get; }
+
+        public DateTimeOffset StartedAt { get; }
 
         public void Dispose()
         {

@@ -17,4 +17,8 @@ public interface IDiagnosticReportService
 public interface IWindowsSettingsLauncher
 {
     bool OpenVolumeMixer();
+
+    bool OpenSoundSettings();
+
+    bool OpenVbCableWebsite();
 }

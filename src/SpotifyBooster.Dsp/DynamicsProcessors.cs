@@ -129,3 +129,60 @@ public sealed class StereoLimiter
         GainReductionDecibels = 0f;
     }
 }
+
+public sealed class StereoSoftClipper
+{
+    private float threshold;
+    private float drive;
+    private float driveNormalization;
+
+    public StereoSoftClipper(
+        bool enabled = true,
+        float thresholdDecibels = -1f,
+        float drive = 2f)
+    {
+        Enabled = enabled;
+        Configure(thresholdDecibels, drive);
+    }
+
+    public bool Enabled { get; set; }
+
+    public void Configure(float thresholdDecibels, float drive)
+    {
+        this.threshold = GainConversion.DecibelsToFactor(
+            Math.Clamp(thresholdDecibels, -18f, -0.01f));
+        this.drive = Math.Clamp(drive, 0.5f, 8f);
+        driveNormalization = MathF.Tanh(this.drive);
+    }
+
+    public int Process(ref float left, ref float right)
+    {
+        if (!Enabled)
+        {
+            return 0;
+        }
+
+        int affected = 0;
+        left = ProcessSample(left, ref affected);
+        right = ProcessSample(right, ref affected);
+        return affected;
+    }
+
+    private float ProcessSample(float sample, ref int affected)
+    {
+        float magnitude = Math.Abs(sample);
+        if (magnitude <= threshold)
+        {
+            return sample;
+        }
+
+        affected++;
+        float kneePosition = Math.Clamp(
+            (magnitude - threshold) / (1f - threshold),
+            0f,
+            1f);
+        float shaped = MathF.Tanh(kneePosition * drive) / driveNormalization;
+        float result = threshold + ((1f - threshold) * shaped);
+        return MathF.CopySign(Math.Min(1f, result), sample);
+    }
+}

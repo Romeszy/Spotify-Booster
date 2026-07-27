@@ -1,5 +1,24 @@
 namespace SpotifyBooster.Core.Configuration;
 
+public enum WindowCloseBehavior
+{
+    MinimizeToTray,
+    Ask,
+    Exit,
+}
+
+public enum InterfaceTheme
+{
+    Dark,
+    System,
+}
+
+public enum InterfaceDensity
+{
+    Compact,
+    Comfortable,
+}
+
 public sealed record AudioProfileSettings
 {
     public required string Name { get; init; }
@@ -7,13 +26,32 @@ public sealed record AudioProfileSettings
     public AudioProcessingSettings Processing { get; init; } = new();
 }
 
+public sealed record HotkeySettings
+{
+    public bool GlobalHotkeysEnabled { get; init; }
+
+    public string IncreaseGain { get; init; } = "Ctrl+Alt+Up";
+
+    public string DecreaseGain { get; init; } = "Ctrl+Alt+Down";
+
+    public string ToggleProcessing { get; init; } = "Ctrl+Alt+B";
+
+    public string PanicReset { get; init; } = "Ctrl+Alt+0";
+
+    public string ToggleBassBoost { get; init; } = "Ctrl+Alt+G";
+
+    public string ToggleWindow { get; init; } = "Ctrl+Alt+S";
+}
+
 public sealed record AppSettings
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
 
     public bool FirstRunCompleted { get; init; }
+
+    public bool ExpertModeAcknowledged { get; init; }
 
     public string? SourceDeviceId { get; init; }
 
@@ -21,9 +59,32 @@ public sealed record AppSettings
 
     public bool StartWithWindows { get; init; }
 
-    public bool MinimizeToTray { get; init; } = true;
+    public bool StartMinimized { get; init; }
+
+    public bool StartProcessingAutomatically { get; init; }
+
+    public bool WaitForDevicesOnStartup { get; init; } = true;
+
+    public bool WaitForSpotifyOnStartup { get; init; }
+
+    public WindowCloseBehavior CloseBehavior { get; init; } =
+        WindowCloseBehavior.MinimizeToTray;
+
+    public bool NotificationsEnabled { get; init; } = true;
 
     public bool HeadphonesSafetyMode { get; init; } = true;
+
+    public InterfaceTheme Theme { get; init; } = InterfaceTheme.Dark;
+
+    public InterfaceDensity Density { get; init; } = InterfaceDensity.Compact;
+
+    public bool ReduceAnimations { get; init; }
+
+    public bool ShowLinearPercent { get; init; } = true;
+
+    public bool DetailedDiagnostics { get; init; }
+
+    public HotkeySettings Hotkeys { get; init; } = new();
 
     public AudioProcessingSettings Processing { get; init; } = new();
 
@@ -31,12 +92,13 @@ public sealed record AppSettings
     [
         new()
         {
-            Name = "Balanced",
+            Name = "Équilibré",
             Processing = new()
             {
                 BassProfile = BassProfile.Balanced,
                 BassFrequencyHz = 90,
                 BassGainDb = 3,
+                BassSlope = 0.9,
             },
         },
         new()
@@ -45,8 +107,9 @@ public sealed record AppSettings
             Processing = new()
             {
                 BassProfile = BassProfile.Punch,
-                BassFrequencyHz = 105,
-                BassGainDb = 5,
+                BassFrequencyHz = 110,
+                BassGainDb = 6,
+                BassSlope = 1.2,
             },
         },
         new()
@@ -55,8 +118,9 @@ public sealed record AppSettings
             Processing = new()
             {
                 BassProfile = BassProfile.DeepBass,
-                BassFrequencyHz = 60,
-                BassGainDb = 6,
+                BassFrequencyHz = 55,
+                BassGainDb = 9,
+                BassSlope = 0.75,
             },
         },
     ];

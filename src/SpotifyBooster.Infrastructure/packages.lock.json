@@ -58,6 +58,7 @@
           "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.10"
         }
       }
-    }
+    },
+    "net8.0-windows10.0.19041/win-x64": {}
   }
 }

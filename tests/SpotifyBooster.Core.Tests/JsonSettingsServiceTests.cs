@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using SpotifyBooster.Core.Configuration;
 using SpotifyBooster.Infrastructure.Diagnostics;
@@ -14,28 +15,44 @@ public sealed class JsonSettingsServiceTests : IDisposable
     private readonly InMemoryErrorSink errorSink = new();
 
     [Fact]
-    public async Task SaveAndLoad_RoundTripsProfiles()
+    public async Task SaveAndLoad_RoundTripsV2ModesProfilesAndHotkeys()
     {
         var service = CreateService();
         var settings = new AppSettings
         {
             FirstRunCompleted = true,
+            ExpertModeAcknowledged = true,
             SourceDeviceId = "capture-id",
             OutputDeviceId = "render-id",
-            Processing = new AudioProcessingSettings
+            CloseBehavior = WindowCloseBehavior.Ask,
+            Theme = InterfaceTheme.System,
+            Density = InterfaceDensity.Comfortable,
+            Hotkeys = new HotkeySettings
             {
-                GainPercent = 250,
-                BassGainDb = 4.5,
+                GlobalHotkeysEnabled = true,
+                IncreaseGain = "Ctrl+Shift+1",
+                DecreaseGain = "Ctrl+Shift+2",
+                ToggleProcessing = "Ctrl+Shift+3",
+                PanicReset = "Ctrl+Shift+4",
+                ToggleBassBoost = "Ctrl+Shift+5",
+                ToggleWindow = "Ctrl+Shift+6",
+            },
+            Processing = RawProcessing(25) with
+            {
+                BassFrequencyHz = 35,
+                BassGainDb = 18,
             },
             Profiles =
             [
                 new AudioProfileSettings
                 {
-                    Name = "Test",
-                    Processing = new AudioProcessingSettings
-                    {
-                        GainPercent = 175,
-                    },
+                    Name = "Direct",
+                    Processing = DirectProcessing(13.9794),
+                },
+                new AudioProfileSettings
+                {
+                    Name = "Raw 25",
+                    Processing = RawProcessing(25),
                 },
             ],
         };
@@ -44,18 +61,110 @@ public sealed class JsonSettingsServiceTests : IDisposable
         await service.SaveAsync(settings, cancellationToken);
         AppSettings loaded = await service.LoadAsync(cancellationToken);
 
-        Assert.Equal(settings.SchemaVersion, loaded.SchemaVersion);
+        Assert.Equal(AppSettings.CurrentSchemaVersion, loaded.SchemaVersion);
         Assert.Equal(settings.FirstRunCompleted, loaded.FirstRunCompleted);
+        Assert.Equal(settings.ExpertModeAcknowledged, loaded.ExpertModeAcknowledged);
         Assert.Equal(settings.SourceDeviceId, loaded.SourceDeviceId);
         Assert.Equal(settings.OutputDeviceId, loaded.OutputDeviceId);
+        Assert.Equal(settings.CloseBehavior, loaded.CloseBehavior);
+        Assert.Equal(settings.Theme, loaded.Theme);
+        Assert.Equal(settings.Density, loaded.Density);
+        Assert.Equal(settings.Hotkeys, loaded.Hotkeys);
         Assert.Equal(settings.Processing, loaded.Processing);
-        Assert.Single(loaded.Profiles);
-        Assert.Equal("Test", loaded.Profiles[0].Name);
-        Assert.Equal(175, loaded.Profiles[0].Processing.GainPercent);
+        Assert.Equal(settings.Profiles.ToArray(), loaded.Profiles.ToArray());
+        Assert.Equal(AudioProtectionMode.Direct, loaded.Profiles[0].Processing.Mode);
+        Assert.Equal(13.9794, loaded.Profiles[0].Processing.MainGainDb);
+        Assert.Equal(AudioProtectionMode.RawExpert, loaded.Profiles[1].Processing.Mode);
+        Assert.Equal(25, loaded.Profiles[1].Processing.MainGainDb);
+    }
+
+    [Theory]
+    [InlineData(100, 0d)]
+    [InlineData(200, 6.020599913d)]
+    [InlineData(500, 13.979400087d)]
+    public async Task Schema1MigrationCreatesBackupAndPreservesGainExactly(
+        int gainPercent,
+        double expectedGainDecibels)
+    {
+        Directory.CreateDirectory(temporaryDirectory);
+        string settingsPath = Path.Combine(temporaryDirectory, "settings.json");
+        string legacyJson =
+            $$"""
+            {
+              "schemaVersion": 1,
+              "firstRunCompleted": true,
+              "sourceDeviceId": "legacy-capture",
+              "outputDeviceId": "legacy-render",
+              "minimizeToTray": false,
+              "processing": {
+                "gainPercent": {{gainPercent}},
+                "dcBlockEnabled": true,
+                "bassBoostEnabled": false,
+                "bassFrequencyHz": 90,
+                "bassGainDb": 3,
+                "compressorEnabled": false,
+                "limiterEnabled": true,
+                "limiterThresholdDb": -1,
+                "limiterReleaseMs": 80,
+                "parameterSmoothingMs": 20
+              },
+              "profiles": [
+                {
+                  "name": "Legacy {{gainPercent}}",
+                  "processing": {
+                    "gainPercent": {{gainPercent}},
+                    "compressorEnabled": false,
+                    "limiterEnabled": true
+                  }
+                }
+              ]
+            }
+            """;
+        await File.WriteAllTextAsync(
+            settingsPath,
+            legacyJson,
+            TestContext.Current.CancellationToken);
+        var service = CreateService();
+
+        AppSettings migrated = await service.LoadAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(AppSettings.CurrentSchemaVersion, migrated.SchemaVersion);
+        Assert.Equal(expectedGainDecibels, migrated.Processing.MainGainDb, 8);
+        Assert.Equal(expectedGainDecibels, migrated.Profiles[0].Processing.MainGainDb, 8);
+        Assert.Equal(AudioProtectionMode.Protected, migrated.Processing.Mode);
+        Assert.Equal(WindowCloseBehavior.Exit, migrated.CloseBehavior);
+
+        string backupPath = Path.Combine(
+            temporaryDirectory,
+            "settings.schema1.backup.json");
+        Assert.True(File.Exists(backupPath));
+        Assert.Equal(
+            legacyJson,
+            await File.ReadAllTextAsync(
+                backupPath,
+                TestContext.Current.CancellationToken));
+
+        using JsonDocument rewritten = JsonDocument.Parse(
+            await File.ReadAllTextAsync(
+                settingsPath,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            AppSettings.CurrentSchemaVersion,
+            rewritten.RootElement.GetProperty("SchemaVersion").GetInt32());
+
+        AppSettings roundTripped = await service.LoadAsync(
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            migrated with { Profiles = roundTripped.Profiles },
+            roundTripped);
+        Assert.Equal(
+            migrated.Profiles.ToArray(),
+            roundTripped.Profiles.ToArray());
     }
 
     [Fact]
-    public async Task InvalidJson_ReturnsSafeDefaultsAndReportsError()
+    public async Task InvalidJson_ReturnsSafeV2DefaultsAndReportsError()
     {
         Directory.CreateDirectory(temporaryDirectory);
         await File.WriteAllTextAsync(
@@ -67,21 +176,24 @@ public sealed class JsonSettingsServiceTests : IDisposable
         AppSettings loaded = await service.LoadAsync(
             TestContext.Current.CancellationToken);
 
-        Assert.Equal(100, loaded.Processing.GainPercent);
+        Assert.Equal(AppSettings.CurrentSchemaVersion, loaded.SchemaVersion);
+        Assert.Equal(0, loaded.Processing.MainGainDb);
+        Assert.Equal(AudioProtectionMode.Protected, loaded.Processing.Mode);
+        Assert.True(loaded.Processing.SoftClipperEnabled);
         Assert.True(loaded.Processing.LimiterEnabled);
         Assert.NotEmpty(errorSink.GetRecent());
     }
 
     [Fact]
-    public async Task UnknownJsonProperty_IsRejected()
+    public async Task UnknownJsonPropertyIsRejected()
     {
         Directory.CreateDirectory(temporaryDirectory);
         await File.WriteAllTextAsync(
             Path.Combine(temporaryDirectory, "settings.json"),
             """
             {
-              "schemaVersion": 1,
-              "unexpected": "value"
+              "SchemaVersion": 2,
+              "Unexpected": "value"
             }
             """,
             TestContext.Current.CancellationToken);
@@ -95,11 +207,13 @@ public sealed class JsonSettingsServiceTests : IDisposable
     }
 
     [Theory]
-    [InlineData("""{"schemaVersion":1,"processing":null}""")]
-    [InlineData("""{"schemaVersion":1,"profiles":null}""")]
-    [InlineData("""{"schemaVersion":1,"profiles":[null]}""")]
-    [InlineData("""{"schemaVersion":1,"profiles":[{"name":"Broken","processing":null}]}""")]
-    public async Task NullConfigurationNodes_ReturnSafeDefaultsAndReportError(string json)
+    [InlineData("""{"SchemaVersion":2,"Processing":null}""")]
+    [InlineData("""{"SchemaVersion":2,"Profiles":null}""")]
+    [InlineData("""{"SchemaVersion":2,"Hotkeys":null}""")]
+    [InlineData("""{"SchemaVersion":2,"Profiles":[null]}""")]
+    [InlineData("""{"SchemaVersion":2,"Profiles":[{"Name":"Broken","Processing":null}]}""")]
+    public async Task NullConfigurationNodesReturnSafeDefaultsAndReportError(
+        string json)
     {
         Directory.CreateDirectory(temporaryDirectory);
         await File.WriteAllTextAsync(
@@ -112,18 +226,44 @@ public sealed class JsonSettingsServiceTests : IDisposable
             TestContext.Current.CancellationToken);
 
         Assert.False(loaded.FirstRunCompleted);
-        Assert.Equal(100, loaded.Processing.GainPercent);
+        Assert.Equal(0, loaded.Processing.MainGainDb);
         Assert.True(loaded.Processing.LimiterEnabled);
         Assert.NotEmpty(errorSink.GetRecent());
     }
 
     [Fact]
-    public async Task Save_InvalidConfigurationThrowsWithoutReplacingExistingFile()
+    public async Task Schema1NullProcessingReturnsSafeDefaultsWithoutBackup()
+    {
+        Directory.CreateDirectory(temporaryDirectory);
+        await File.WriteAllTextAsync(
+            Path.Combine(temporaryDirectory, "settings.json"),
+            """{"schemaVersion":1,"firstRunCompleted":true,"processing":null}""",
+            TestContext.Current.CancellationToken);
+        var service = CreateService();
+
+        AppSettings loaded = await service.LoadAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.False(loaded.FirstRunCompleted);
+        Assert.Equal(0, loaded.Processing.MainGainDb);
+        Assert.NotEmpty(errorSink.GetRecent());
+        Assert.False(File.Exists(Path.Combine(
+            temporaryDirectory,
+            "settings.schema1.backup.json")));
+    }
+
+    [Fact]
+    public async Task SaveInvalidConfigurationThrowsWithoutReplacingExistingFile()
     {
         var service = CreateService();
         CancellationToken cancellationToken = TestContext.Current.CancellationToken;
         await service.SaveAsync(
-            new AppSettings { FirstRunCompleted = true },
+            new AppSettings
+            {
+                FirstRunCompleted = true,
+                Processing = DirectProcessing(0),
+                Profiles = [],
+            },
             cancellationToken);
         string original = await File.ReadAllTextAsync(
             service.SettingsFilePath,
@@ -132,10 +272,12 @@ public sealed class JsonSettingsServiceTests : IDisposable
         var invalid = new AppSettings
         {
             FirstRunCompleted = true,
-            Processing = new AudioProcessingSettings
+            Processing = RawProcessing(25) with
             {
-                GainPercent = 900,
+                MainGainDb = 30,
+                ExpertMaximumGainDb = 25,
             },
+            Profiles = [],
         };
 
         await Assert.ThrowsAsync<InvalidDataException>(
@@ -161,4 +303,21 @@ public sealed class JsonSettingsServiceTests : IDisposable
             errorSink,
             temporaryDirectory);
     }
+
+    private static AudioProcessingSettings DirectProcessing(double gainDecibels) =>
+        new()
+        {
+            Mode = AudioProtectionMode.Direct,
+            MainGainDb = gainDecibels,
+            CompressorEnabled = false,
+            SoftClipperEnabled = false,
+            LimiterEnabled = false,
+        };
+
+    private static AudioProcessingSettings RawProcessing(double gainDecibels) =>
+        DirectProcessing(gainDecibels) with
+        {
+            Mode = AudioProtectionMode.RawExpert,
+            ExpertMaximumGainDb = 25,
+        };
 }
