@@ -1,0 +1,8 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Description>Domain contracts, validated settings and application state for Spotify Booster.</Description>
+  </PropertyGroup>
+
+</Project>

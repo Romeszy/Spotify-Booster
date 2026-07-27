@@ -1,0 +1,30 @@
+# Project-local SDK used in this workspace only
+.dotnet/
+
+# Build and test output
+[Bb]in/
+[Oo]bj/
+[Tt]est[Rr]esults/
+*.trx
+coverage.*
+
+# IDE state
+.vs/
+.idea/
+*.user
+*.suo
+
+# Runtime state (normally stored under LocalAppData)
+logs/
+settings.json
+settings.json.tmp
+diagnostic-*.txt
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+
+# Local agent state
+.omx/
+.codex/
