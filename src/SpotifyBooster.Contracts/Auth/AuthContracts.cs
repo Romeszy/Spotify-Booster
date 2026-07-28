@@ -14,10 +14,19 @@ public sealed record AuthSessionContract(
         $"{nameof(AuthSessionContract)} {{ User = {User.Id}, AccessTokenExpiresAt = {AccessTokenExpiresAt:O} }}";
 }
 
-public sealed record SignUpRequest(string Email, [property: JsonIgnore] string Password);
-public sealed record SignInRequest(string Email, [property: JsonIgnore] string Password);
+public sealed record SignUpRequest(string Email, [property: JsonIgnore] string Password)
+{
+    public override string ToString() => $"{nameof(SignUpRequest)} {{ Email = {Email}, Password = [REDACTED] }}";
+}
+public sealed record SignInRequest(string Email, [property: JsonIgnore] string Password)
+{
+    public override string ToString() => $"{nameof(SignInRequest)} {{ Email = {Email}, Password = [REDACTED] }}";
+}
 public sealed record PasswordResetRequest(string Email);
-public sealed record UpdatePasswordRequest([property: JsonIgnore] string Password);
+public sealed record UpdatePasswordRequest([property: JsonIgnore] string Password)
+{
+    public override string ToString() => $"{nameof(UpdatePasswordRequest)} {{ Password = [REDACTED] }}";
+}
 
 public enum RemoteRevocation
 {

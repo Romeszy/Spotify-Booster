@@ -41,7 +41,7 @@ public sealed class SupabaseJwtValidator
             var algorithm = String(header, "alg");
             if (algorithm is not ("RS256" or "ES256")) return JwtValidationResult.Reject("invalid_algorithm");
             var kid = String(header, "kid");
-            var key = await _jwks.FindAsync(kid, cancellationToken).ConfigureAwait(false);
+            using var key = await _jwks.FindAsync(kid, cancellationToken).ConfigureAwait(false);
             if (key is null) return JwtValidationResult.Reject("unknown_kid");
             if (key.Algorithm != algorithm) return JwtValidationResult.Reject("invalid_algorithm");
             var data = Encoding.ASCII.GetBytes(parts[0] + "." + parts[1]);
@@ -53,10 +53,17 @@ public sealed class SupabaseJwtValidator
             if (!HasAudience(payload, _options.Audience)) return JwtValidationResult.Reject("audience");
             var now = _time.GetUtcNow().ToUnixTimeSeconds();
             const long skew = 60;
-            if (!payload.TryGetProperty("exp", out var exp) || !exp.TryGetInt64(out var expires) || now - skew >= expires)
+            if (!payload.TryGetProperty("exp", out var exp) ||
+                exp.ValueKind != JsonValueKind.Number || !exp.TryGetInt64(out var expires) ||
+                now - skew >= expires)
                 return JwtValidationResult.Reject("expired");
-            if (payload.TryGetProperty("nbf", out var nbf) && nbf.TryGetInt64(out var notBefore) && now + skew < notBefore)
-                return JwtValidationResult.Reject("not_yet_valid");
+            if (payload.TryGetProperty("nbf", out var nbf))
+            {
+                if (nbf.ValueKind != JsonValueKind.Number || !nbf.TryGetInt64(out var notBefore))
+                    return JwtValidationResult.Reject("malformed");
+                if (now + skew < notBefore)
+                    return JwtValidationResult.Reject("not_yet_valid");
+            }
             if (!payload.TryGetProperty("sub", out var sub) || sub.ValueKind != JsonValueKind.String ||
                 !Guid.TryParse(sub.GetString(), out var subject))
                 return JwtValidationResult.Reject("missing_subject");
@@ -66,10 +73,9 @@ public sealed class SupabaseJwtValidator
             return new(true, subject, new(identity), string.Empty);
         }
         catch (OperationCanceledException) { throw; }
-        catch (Exception ex) when (ex is JsonException or FormatException or InvalidDataException)
-        {
-            return JwtValidationResult.Reject("malformed");
-        }
+        catch (JsonException) { return JwtValidationResult.Reject("malformed"); }
+        catch (FormatException) { return JwtValidationResult.Reject("malformed"); }
+        catch (InvalidDataException) { return JwtValidationResult.Reject("malformed"); }
     }
 
     private static bool HasAudience(JsonElement payload, string expected)
@@ -97,6 +103,11 @@ public sealed class SupabaseAuthenticationMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(HttpContext context, SupabaseJwtValidator validator)
     {
+        if (context.Request.Path.StartsWithSegments("/health"))
+        {
+            await next(context).ConfigureAwait(false);
+            return;
+        }
         var authorization = context.Request.Headers.Authorization.ToString();
         if (authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
         {

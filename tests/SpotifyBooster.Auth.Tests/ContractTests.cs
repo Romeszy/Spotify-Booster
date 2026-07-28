@@ -19,6 +19,23 @@ public sealed class ContractTests
         Assert.DoesNotContain("refresh-secret", json, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void PasswordRequestDiagnosticsAreAlwaysRedacted()
+    {
+        const string password = "secret-password-value";
+        object[] requests =
+        [
+            new SignUpRequest("u@example.test", password),
+            new SignInRequest("u@example.test", password),
+            new UpdatePasswordRequest(password)
+        ];
+        foreach (var request in requests)
+        {
+            Assert.DoesNotContain(password, request.ToString(), StringComparison.Ordinal);
+            Assert.DoesNotContain(password, JsonSerializer.Serialize(request), StringComparison.Ordinal);
+        }
+    }
+
     [Theory]
     [InlineData(SubscriptionStatus.Trialing, true)]
     [InlineData(SubscriptionStatus.Active, true)]

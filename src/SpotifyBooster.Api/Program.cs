@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.HttpOverrides;
 using SpotifyBooster.Api;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -7,7 +6,7 @@ var origin = section["Origin"] ?? "https://127.0.0.1:54321/";
 var options = new SupabaseApiOptions
 {
     Origin = new Uri(origin, UriKind.Absolute),
-    PublishableKey = section["PublishableKey"] ?? "publishable-test-placeholder",
+    PublishableKey = section["PublishableKey"] ?? "sb_publishable_test_placeholder",
     Issuer = section["Issuer"] ?? origin.TrimEnd('/') + "/auth/v1",
     Audience = section["Audience"] ?? "authenticated",
     JwksPath = section["JwksPath"] ?? "/auth/v1/.well-known/jwks.json"
@@ -19,13 +18,28 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ApiMetrics>();
 builder.Services.AddSingleton<FixedWindowLimiter>();
 builder.Services.AddSingleton<ReadinessState>();
-builder.Services.AddSingleton(CreateStrictHttpClient());
-builder.Services.AddSingleton<JwksCoordinator>();
+builder.Services.AddHttpClient<JwksCoordinator>(client => client.BaseAddress = options.Origin)
+    .ConfigurePrimaryHttpMessageHandler(CreateStrictHandler);
 builder.Services.AddSingleton<SupabaseJwtValidator>();
-builder.Services.AddSingleton<DataApiClient>();
-builder.Services.AddSingleton<DataApiReadinessProbe>();
+builder.Services.AddHttpClient<DataApiClient>(client => client.BaseAddress = options.Origin)
+    .ConfigurePrimaryHttpMessageHandler(CreateStrictHandler);
+builder.Services.AddHttpClient<DataApiReadinessProbe>(client => client.BaseAddress = options.Origin)
+    .ConfigurePrimaryHttpMessageHandler(CreateStrictHandler);
+builder.Services.AddHostedService<DataApiReadinessHostedService>();
 
 var app = builder.Build();
+app.Use(async (context, next) =>
+{
+    try { await next(context).ConfigureAwait(false); }
+    catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { }
+    catch (Exception)
+    {
+        if (context.Response.HasStarted)
+            throw;
+        await ProblemWriter.WriteAsync(context, StatusCodes.Status500InternalServerError,
+            "internal_error", "Unexpected server error.").ConfigureAwait(false);
+    }
+});
 app.UseMiddleware<SupabaseAuthenticationMiddleware>();
 app.UseMiddleware<ApiRateLimitingMiddleware>();
 
@@ -37,8 +51,14 @@ app.MapGet("/health/ready", (JwksCoordinator jwks, ReadinessState readiness) =>
 app.MapGet("/v1/me", async (HttpContext context, DataApiClient dataApi, CancellationToken cancellationToken) =>
 {
     if (!Guid.TryParse(context.User.FindFirst("sub")?.Value, out var subject))
-        return Results.Json(new { type = "about:blank", title = "Unauthorized", status = 401, code = "unauthorized",
-            traceId = context.TraceIdentifier }, statusCode: StatusCodes.Status401Unauthorized,
+        return Results.Json(new
+        {
+            type = "about:blank",
+            title = "Unauthorized",
+            status = 401,
+            code = "unauthorized",
+            traceId = context.TraceIdentifier
+        }, statusCode: StatusCodes.Status401Unauthorized,
             contentType: "application/problem+json");
     var header = context.Request.Headers.Authorization.ToString();
     try
@@ -47,18 +67,21 @@ app.MapGet("/v1/me", async (HttpContext context, DataApiClient dataApi, Cancella
     }
     catch (DataApiException)
     {
-        return Results.Json(new { type = "about:blank", title = "Upstream unavailable", status = 503,
-            code = "dependency_unavailable", traceId = context.TraceIdentifier },
+        return Results.Json(new
+        {
+            type = "about:blank",
+            title = "Upstream unavailable",
+            status = 503,
+            code = "dependency_unavailable",
+            traceId = context.TraceIdentifier
+        },
             statusCode: StatusCodes.Status503ServiceUnavailable, contentType: "application/problem+json");
     }
 });
 
 app.Run();
 
-static HttpClient CreateStrictHttpClient()
-{
-    var handler = new HttpClientHandler { AllowAutoRedirect = false };
-    return new HttpClient(handler, disposeHandler: true);
-}
+static HttpMessageHandler CreateStrictHandler() =>
+    new HttpClientHandler { AllowAutoRedirect = false };
 
 public partial class Program;

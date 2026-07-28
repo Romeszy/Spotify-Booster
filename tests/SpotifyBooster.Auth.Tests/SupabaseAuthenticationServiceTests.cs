@@ -19,7 +19,7 @@ public sealed class SupabaseAuthenticationServiceTests
         });
         var session = await service.SignInAsync(new("u@example.test", "0123456789"), TestContext.Current.CancellationToken);
         Assert.Equal(UserId, session.User.Id);
-        Assert.Equal("publishable", observed!.Headers.GetValues("apikey").Single());
+        Assert.Equal("sb_publishable_test", observed!.Headers.GetValues("apikey").Single());
         Assert.Null(observed.Headers.Authorization);
         Assert.DoesNotContain("access-token", session.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("refresh-token", session.ToString(), StringComparison.Ordinal);
@@ -83,6 +83,74 @@ public sealed class SupabaseAuthenticationServiceTests
         Assert.Equal("refresh-token", (await store.ReadAsync(TestContext.Current.CancellationToken))!.RefreshToken);
     }
 
+    [Fact]
+    public async Task SignOutHidesSessionBeforeRemoteRevocationCompletes()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var store = new InMemoryAuthSessionStore();
+        await store.WriteAsync(Session(), TestContext.Current.CancellationToken);
+        var service = Create((_, _) =>
+        {
+            entered.SetResult();
+            return release.Task;
+        }, store);
+        var signOut = service.SignOutAsync(TestContext.Current.CancellationToken);
+        await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
+        Assert.Null(await service.GetSessionAsync(TestContext.Current.CancellationToken));
+        release.SetResult(new(HttpStatusCode.NoContent));
+        Assert.Equal(RemoteRevocation.Succeeded, (await signOut).RemoteRevocation);
+    }
+
+    [Fact]
+    public async Task RedirectIsRejectedAndLocalSessionStillCleared()
+    {
+        var store = new InMemoryAuthSessionStore();
+        await store.WriteAsync(Session(), TestContext.Current.CancellationToken);
+        var service = Create((_, _) => new(HttpStatusCode.Redirect)
+        {
+            Headers = { Location = new Uri("https://evil.example/") }
+        }, store);
+        var result = await service.SignOutAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(RemoteRevocation.Failed, result.RemoteRevocation);
+        Assert.Null(await store.ReadAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task CancelledSignOutStillClearsSessionAndReportsRemoteFailure()
+    {
+        var store = new InMemoryAuthSessionStore();
+        await store.WriteAsync(Session(), TestContext.Current.CancellationToken);
+        var service = Create(async (_, cancellationToken) =>
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return new(HttpStatusCode.NoContent);
+        }, store);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var result = await service.SignOutAsync(cancellation.Token);
+        Assert.Equal(RemoteRevocation.Failed, result.RemoteRevocation);
+        Assert.Null(await store.ReadAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData("service_role_secret")]
+    [InlineData("sb_secret_value")]
+    [InlineData("legacy-anon-jwt")]
+    [InlineData("sb_publishable_service_role")]
+    [InlineData("sb_publishable_sb_secret_value")]
+    [InlineData("sb_publishable_bad value")]
+    [InlineData("")]
+    public void PrivilegedOrLegacyKeysAreRejected(string key)
+    {
+        var options = new SupabaseAuthOptions
+        {
+            BaseUri = new("https://project.supabase.co/"),
+            PublishableKey = key
+        };
+        Assert.Throws<InvalidOperationException>(options.Validate);
+    }
+
     private static SupabaseAuthenticationService Create(
         Func<HttpRequestMessage, CancellationToken, HttpResponseMessage> handler,
         IAuthSessionStore? store = null) => Create((r, c) => Task.FromResult(handler(r, c)), store);
@@ -92,7 +160,7 @@ public sealed class SupabaseAuthenticationServiceTests
         IAuthSessionStore? store = null)
     {
         var client = new HttpClient(new Handler(handler));
-        return new(client, new() { BaseUri = new("https://project.supabase.co/"), PublishableKey = "publishable" },
+        return new(client, new() { BaseUri = new("https://project.supabase.co/"), PublishableKey = "sb_publishable_test" },
             store ?? new InMemoryAuthSessionStore());
     }
     private static HttpResponseMessage Json(HttpStatusCode code, string value) =>

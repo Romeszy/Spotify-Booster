@@ -4,9 +4,11 @@ namespace SpotifyBooster.Api;
 
 public sealed class FixedWindowLimiter
 {
+    private const int MaximumPartitions = 4096;
     private readonly object _sync = new();
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
     private readonly TimeProvider _time;
+    private int _operations;
 
     public FixedWindowLimiter(TimeProvider time) => _time = time;
 
@@ -15,9 +17,15 @@ public sealed class FixedWindowLimiter
         lock (_sync)
         {
             var now = _time.GetTimestamp();
+            if (++_operations % 128 == 0)
+                RemoveExpiredLocked(now);
             if (!_entries.TryGetValue(partition, out var entry) ||
                 _time.GetElapsedTime(entry.StartedAt, now) >= TimeSpan.FromSeconds(60))
+            {
+                if (!_entries.ContainsKey(partition) && _entries.Count >= MaximumPartitions)
+                    EvictOldestLocked();
                 entry = new(now, 0);
+            }
             if (entry.Count >= permitLimit)
             {
                 var remaining = TimeSpan.FromSeconds(60) - _time.GetElapsedTime(entry.StartedAt, now);
@@ -27,6 +35,21 @@ public sealed class FixedWindowLimiter
             _entries[partition] = entry with { Count = entry.Count + 1 };
             return new(true, 0);
         }
+    }
+
+    private void RemoveExpiredLocked(long now)
+    {
+        foreach (var key in _entries.Where(pair =>
+            _time.GetElapsedTime(pair.Value.StartedAt, now) >= TimeSpan.FromSeconds(60))
+            .Select(static pair => pair.Key).ToArray())
+            _entries.Remove(key);
+    }
+
+    private void EvictOldestLocked()
+    {
+        var oldest = _entries.MinBy(static pair => pair.Value.StartedAt);
+        if (!oldest.Equals(default(KeyValuePair<string, Entry>)))
+            _entries.Remove(oldest.Key);
     }
 
     private sealed record Entry(long StartedAt, int Count);

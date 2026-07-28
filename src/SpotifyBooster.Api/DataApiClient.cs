@@ -23,6 +23,8 @@ public sealed class DataApiClient
 
     public async Task<CurrentUserContract> GetMeAsync(Guid subject, string accessToken, CancellationToken cancellationToken)
     {
+        if (subject == Guid.Empty || string.IsNullOrWhiteSpace(accessToken))
+            throw new DataApiException("Data API request invalid.");
         var started = Stopwatch.GetTimestamp();
         var result = "5xx";
         try
@@ -44,6 +46,9 @@ public sealed class DataApiClient
             var bytes = await BoundedContent.ReadAsync(response.Content, 256 * 1024, timeout.Token).ConfigureAwait(false);
             var wire = JsonSerializer.Deserialize<MeWire>(bytes, JsonOptions)
                 ?? throw new DataApiException("Data API response invalid.");
+            if (wire.UserId == Guid.Empty || string.IsNullOrWhiteSpace(wire.Plan) ||
+                string.IsNullOrWhiteSpace(wire.Status))
+                throw new DataApiException("Data API response invalid.");
             if (wire.UserId != subject)
             {
                 result = "subject_mismatch";
@@ -55,6 +60,10 @@ public sealed class DataApiClient
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { result = "cancelled"; throw; }
         catch (OperationCanceledException) { result = "timeout"; throw new DataApiException("Data API timeout."); }
+        catch (HttpRequestException) { result = "5xx"; throw new DataApiException("Data API transport failed."); }
+        catch (JsonException) { result = "5xx"; throw new DataApiException("Data API response invalid."); }
+        catch (InvalidDataException) { result = "5xx"; throw new DataApiException("Data API response invalid."); }
+        catch (NotSupportedException) { result = "5xx"; throw new DataApiException("Data API response invalid."); }
         finally
         {
             _metrics.DataApiRequests.Add(1, new("operation", "profile"), new("result", result));

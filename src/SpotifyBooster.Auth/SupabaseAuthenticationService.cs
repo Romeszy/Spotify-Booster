@@ -9,6 +9,7 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService, IDis
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly HttpClient _httpClient;
+    private readonly bool _ownsHttpClient;
     private readonly SupabaseAuthOptions _options;
     private readonly IAuthSessionStore _store;
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
@@ -17,11 +18,30 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService, IDis
     private volatile bool _signingOut;
 
     public SupabaseAuthenticationService(HttpClient httpClient, SupabaseAuthOptions options, IAuthSessionStore store)
+        : this(httpClient, options, store, false)
+    {
+    }
+
+    public SupabaseAuthenticationService(SupabaseAuthOptions options, IAuthSessionStore store)
+        : this(CreateStrictClient(options), options, store, true)
+    {
+    }
+
+    private SupabaseAuthenticationService(HttpClient httpClient, SupabaseAuthOptions options,
+        IAuthSessionStore store, bool ownsHttpClient)
     {
         _httpClient = httpClient;
+        _ownsHttpClient = ownsHttpClient;
         _options = options;
         _store = store;
         options.Validate();
+        if (_httpClient.DefaultRequestHeaders.Authorization is not null)
+            throw new InvalidOperationException("Authorization must be request-scoped.");
+        if (_httpClient.BaseAddress is null)
+            _httpClient.BaseAddress = options.BaseUri;
+        else if (_httpClient.BaseAddress.GetLeftPart(UriPartial.Authority) !=
+            options.BaseUri.GetLeftPart(UriPartial.Authority))
+            throw new InvalidOperationException("Auth client origin does not match configuration.");
     }
 
     public async Task<AuthSessionContract?> SignUpAsync(SignUpRequest request, CancellationToken cancellationToken = default)
@@ -44,21 +64,23 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService, IDis
 
     public async Task<SignOutResult> SignOutAsync(CancellationToken cancellationToken = default)
     {
-        await _lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _lifecycleGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         try
         {
             _signingOut = true;
-            var session = await _store.ReadAsync(cancellationToken).ConfigureAwait(false);
+            var session = await _store.ReadAsync(CancellationToken.None).ConfigureAwait(false);
             if (session is null)
                 return new(RemoteRevocation.NotAttempted);
+            await _store.WriteAsync(null, CancellationToken.None).ConfigureAwait(false);
             try
             {
                 await SendWithoutBodyAsync(HttpMethod.Post, "auth/v1/logout?scope=local",
                     session.AccessToken, cancellationToken).ConfigureAwait(false);
                 return new(RemoteRevocation.Succeeded);
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (Exception) { return new(RemoteRevocation.Failed); }
+            catch (HttpRequestException) { return new(RemoteRevocation.Failed); }
+            catch (AuthenticationException) { return new(RemoteRevocation.Failed); }
+            catch (OperationCanceledException) { return new(RemoteRevocation.Failed); }
         }
         finally
         {
@@ -106,7 +128,9 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService, IDis
     {
         try { await SendAndDiscardAsync("auth/v1/recover", new { email = request.Email }, cancellationToken).ConfigureAwait(false); }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-        catch (Exception) { } // Deliberately generic to prevent account enumeration.
+        catch (HttpRequestException) { } // Deliberately generic to prevent account enumeration.
+        catch (AuthenticationException) { }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { }
     }
 
     public async Task UpdatePasswordAsync(UpdatePasswordRequest request, CancellationToken cancellationToken = default)
@@ -140,6 +164,7 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService, IDis
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(_options.Timeout);
         using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
+        EnsureNoRedirect(response);
         if (!response.IsSuccessStatusCode) throw new AuthenticationException("Authentication request was rejected.");
         return await ReadBoundedJsonAsync(response, timeout.Token).ConfigureAwait(false);
     }
@@ -152,7 +177,14 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService, IDis
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(_options.Timeout);
         using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
+        EnsureNoRedirect(response);
         if (!response.IsSuccessStatusCode) throw new AuthenticationException("Authentication request was rejected.");
+    }
+
+    private static void EnsureNoRedirect(HttpResponseMessage response)
+    {
+        if ((int)response.StatusCode is >= 300 and < 400)
+            throw new AuthenticationException("Authentication redirect rejected.");
     }
 
     private async Task<AuthWireResponse> ReadBoundedJsonAsync(HttpResponseMessage response, CancellationToken cancellationToken)
@@ -179,10 +211,25 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService, IDis
 
     private static void ValidatePassword(string password)
     {
-        if (password.Length < 10) throw new ArgumentException("Password must contain at least 10 characters.", nameof(password));
+        if (string.IsNullOrEmpty(password) || password.Length < 10)
+            throw new ArgumentException("Password must contain at least 10 characters.", nameof(password));
     }
 
-    public void Dispose() => _lifecycleGate.Dispose();
+    public void Dispose()
+    {
+        _lifecycleGate.Dispose();
+        if (_ownsHttpClient)
+            _httpClient.Dispose();
+    }
+
+    private static HttpClient CreateStrictClient(SupabaseAuthOptions options)
+    {
+        options.Validate();
+        return new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
+        {
+            BaseAddress = options.BaseUri
+        };
+    }
 
     private sealed record AuthWireResponse(
         [property: JsonPropertyName("access_token")] string? AccessToken,
