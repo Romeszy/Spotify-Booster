@@ -4,13 +4,14 @@ namespace SpotifyBooster.Api;
 
 public sealed record SupabaseApiOptions
 {
+    private const string NormativeJwksPath = "/auth/v1/.well-known/jwks.json";
     private static readonly SearchValues<char> PublishableKeyCharacters =
         SearchValues.Create("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-");
     public required Uri Origin { get; init; }
     public required string PublishableKey { get; init; }
     public required string Issuer { get; init; }
     public required string Audience { get; init; }
-    public string JwksPath { get; init; } = "/auth/v1/.well-known/jwks.json";
+    public string JwksPath { get; init; } = NormativeJwksPath;
 
     public void Validate()
     {
@@ -25,8 +26,7 @@ public sealed record SupabaseApiOptions
             throw new InvalidOperationException("Issuer must use the configured HTTPS origin.");
         if (string.IsNullOrWhiteSpace(Audience))
             throw new InvalidOperationException("Audience is required.");
-        if (JwksPath != "/auth/v1/.well-known/jwks.json" ||
-            Uri.TryCreate(JwksPath, UriKind.Absolute, out _) || JwksPath.Contains("..", StringComparison.Ordinal))
+        if (!IsNormativeJwksPath(JwksPath))
             throw new InvalidOperationException("JWKS path must be a fixed relative path.");
     }
 
@@ -52,5 +52,21 @@ public sealed record SupabaseApiOptions
             value.Contains("sb_secret", StringComparison.OrdinalIgnoreCase))
             return false;
         return value.AsSpan(prefix.Length).IndexOfAnyExcept(PublishableKeyCharacters) < 0;
+    }
+
+    private static bool IsNormativeJwksPath(string? path)
+    {
+        if (path is null || !string.Equals(path, NormativeJwksPath, StringComparison.Ordinal) ||
+            path.Length < 2 || path[0] != '/' || path[1] == '/' ||
+            path.AsSpan().IndexOfAny('\\', '?', '#') >= 0)
+            return false;
+
+        foreach (var segment in path.Split('/'))
+        {
+            if (segment is "." or "..")
+                return false;
+        }
+
+        return true;
     }
 }

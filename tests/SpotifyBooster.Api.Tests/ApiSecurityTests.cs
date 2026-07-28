@@ -1520,6 +1520,26 @@ public sealed class ApiSecurityTests : IDisposable
             (Options() with { Issuer = issuer, JwksPath = path }).Validate());
     }
 
+    [Fact]
+    public void NormativeRootRelativeJwksPathIsAccepted()
+    {
+        (Options() with { JwksPath = "/auth/v1/.well-known/jwks.json" }).Validate();
+    }
+
+    [Theory]
+    [InlineData("file:///auth/v1/.well-known/jwks.json")]
+    [InlineData("https://project.supabase.co/auth/v1/.well-known/jwks.json")]
+    [InlineData("//project.supabase.co/auth/v1/.well-known/jwks.json")]
+    [InlineData("/auth/v1/../v1/.well-known/jwks.json")]
+    [InlineData("/auth/v1/.well-known/jwks.json?key=value")]
+    [InlineData("/auth/v1/.well-known/jwks.json#fragment")]
+    [InlineData(@"\auth\v1\.well-known\jwks.json")]
+    public void NonNormativeJwksPathsAreRejected(string path)
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            (Options() with { JwksPath = path }).Validate());
+    }
+
     private JwksCoordinator Coordinator(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send)
     {
         var client = new HttpClient(new Handler(send));
