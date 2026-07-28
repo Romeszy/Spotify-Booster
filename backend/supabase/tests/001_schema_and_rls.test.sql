@@ -1,6 +1,6 @@
 begin;
 
-select plan(59);
+select plan(58);
 
 select has_table('public', 'profiles', 'profiles exists');
 select has_table('public', 'entitlements', 'entitlements exists');
@@ -74,7 +74,8 @@ select throws_ok($$update public.entitlements set features=array['Unknown'], rev
 select throws_ok($$update public.entitlements set plan='free', valid_until=now()+interval '1 day', revision=revision+1 where user_id='00000000-0000-0000-0000-00000000000a'$$, '23514', null, 'free duration rejected');
 
 set local role spotify_booster_entitlement_writer;
-select lives_ok($$update public.entitlements set plan='pro', valid_until=issued_at+interval '30 days', revision=revision+1 where user_id='00000000-0000-0000-0000-00000000000a'$$, 'controlled writer updates with exact revision');
+set local search_path = public, extensions, pg_catalog;
+update public.entitlements set plan='pro', valid_until=issued_at+interval '30 days', revision=revision+1 where user_id='00000000-0000-0000-0000-00000000000a';
 reset role;
 select is((select revision from public.entitlements where user_id='00000000-0000-0000-0000-00000000000a'), 2::bigint, 'writer increments exactly once');
 

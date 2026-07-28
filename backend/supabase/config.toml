@@ -28,7 +28,7 @@ enabled = true
 sql_paths = ["./seed.sql"]
 
 [studio]
-enabled = true
+enabled = false
 port = 54323
 api_url = "https://127.0.0.1:54321"
 
@@ -52,3 +52,16 @@ password_requirements = ""
 [auth.email]
 enable_signup = true
 enable_confirmations = false
+
+# Unrelated Phase A services are disabled to keep the DB/Auth proof bounded.
+[realtime]
+enabled = false
+
+[storage]
+enabled = false
+
+[storage.vector]
+enabled = false
+
+[analytics]
+enabled = false

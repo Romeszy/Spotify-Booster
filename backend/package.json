@@ -10,11 +10,11 @@
   "scripts": {
     "bootstrap": "pwsh -NoProfile -File ./scripts/bootstrap-supabase-local.ps1",
     "supabase:version": "supabase --version",
-    "db:reset": "supabase db reset --workdir ./supabase",
-    "db:lint": "supabase db lint --workdir ./supabase --level error",
-    "test:db": "supabase test db --workdir ./supabase",
+    "db:reset": "supabase db reset --workdir .",
+    "db:lint": "supabase db lint --workdir . --level error",
+    "test:db": "supabase test db --workdir .",
     "test": "node --test ./scripts/*.test.mjs",
-    "lint": "node --check ./scripts/validate-local-assets.mjs"
+    "lint": "node --check ./scripts/validate-local-assets.mjs && node --check ./scripts/validate-local-assets.test.mjs"
   },
   "devDependencies": {
     "supabase": "2.109.1"

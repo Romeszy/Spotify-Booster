@@ -48,6 +48,7 @@ begin
   end if;
 end
 $block$;
+grant spotify_booster_entitlement_writer to postgres;
 revoke all on table public.entitlements from spotify_booster_entitlement_writer;
 grant select on public.entitlements to spotify_booster_entitlement_writer;
 grant update (plan, status, features, revision, valid_until, grace_until)
