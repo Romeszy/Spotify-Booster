@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using SpotifyBooster.Api;
 
 namespace SpotifyBooster.Api.Tests;
@@ -181,6 +182,27 @@ public sealed class EndpointIntegrationTests
     }
 
     [Fact]
+    public async Task HostLogsRemainFreeOfCredentialsIdentityPrivateUrlsAndStackTraces()
+    {
+        await using var factory = new AuthenticatedFactory { ThrowUnexpectedDataApi = true };
+        using var client = factory.CreateClient();
+        var token = factory.Token("RS256", factory.Subject);
+        using var response = await client.SendAsync(Bearer("/v1/me", token),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        var combined = string.Join(Environment.NewLine, factory.Logs);
+        foreach (var prohibited in new[]
+        {
+            token, "password-test-value", "person@example.test", "sb_publishable_test",
+            "https://private.example/internal", "private-database-host"
+        })
+            Assert.True(!combined.Contains(prohibited, StringComparison.Ordinal),
+                "Host logs contained a prohibited sensitive value.");
+        Assert.True(!combined.Contains(" at ", StringComparison.Ordinal),
+            "Host logs contained a stack trace.");
+    }
+
+    [Fact]
     public async Task HealthRoutesNeverTriggerJwtOrJwks()
     {
         await using var factory = new AuthenticatedFactory();
@@ -226,15 +248,18 @@ public sealed class EndpointIntegrationTests
     {
         private readonly RSA _rsa = RSA.Create(2048);
         private readonly ECDsa _ec = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        private readonly CaptureLoggerProvider _logs = new();
         private int _jwksCalls;
         public Guid Subject { get; } = Guid.NewGuid();
         public bool ReturnMismatchedSubject { get; set; }
         public bool HealthReady { get; set; }
         public bool ThrowUnexpectedDataApi { get; set; }
         public int JwksCalls => Volatile.Read(ref _jwksCalls);
+        public IReadOnlyList<string> Logs => _logs.Messages;
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
+            builder.ConfigureLogging(logging => logging.AddProvider(_logs));
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<JwksCoordinator>();
@@ -270,7 +295,9 @@ public sealed class EndpointIntegrationTests
             {
                 if (ThrowUnexpectedDataApi)
                     return Task.FromException<HttpResponseMessage>(
-                        new InvalidOperationException("private-database-host"));
+                        new InvalidOperationException(
+                            "private-database-host https://private.example/internal " +
+                            "person@example.test password-test-value sb_publishable_test"));
                 var subject = ReturnMismatchedSubject ? Guid.NewGuid() :
                     SubjectFromBearer(request) ?? Subject;
                 return Task.FromResult(JsonResponse(HttpStatusCode.OK, JsonSerializer.Serialize(new
@@ -357,6 +384,32 @@ public sealed class EndpointIntegrationTests
         {
             protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
                 CancellationToken cancellationToken) => send(request, cancellationToken);
+        }
+        private sealed class CaptureLoggerProvider : ILoggerProvider
+        {
+            private readonly System.Collections.Concurrent.ConcurrentQueue<string> _messages = new();
+            public IReadOnlyList<string> Messages => _messages.ToArray();
+            public ILogger CreateLogger(string categoryName) =>
+                new CaptureLogger(categoryName, _messages);
+            public void Dispose() { }
+            private sealed class CaptureLogger(
+                string category,
+                System.Collections.Concurrent.ConcurrentQueue<string> messages) : ILogger
+            {
+                public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+                public bool IsEnabled(LogLevel logLevel) => true;
+                public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+                    Exception? exception, Func<TState, Exception?, string> formatter)
+                {
+                    var structured = state is IEnumerable<KeyValuePair<string, object?>> values
+                        ? string.Join("|", values.Select(static value =>
+                            $"{value.Key}={value.Value}"))
+                        : state?.ToString();
+                    messages.Enqueue(
+                        $"{category}|{logLevel}|{eventId.Id}|{formatter(state, exception)}|" +
+                        $"{structured}|{exception}");
+                }
+            }
         }
     }
 }

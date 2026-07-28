@@ -107,13 +107,14 @@ public sealed class JwksCoordinator : IDisposable
         {
             ThrowIfDisposed();
             var now = _time.GetTimestamp();
-            ExpireSnapshotLocked(now);
+            var attemptCreatedByObserver = ExpireSnapshotLocked(now);
             if (_snapshot?.Keys.TryGetValue(kid, out var cached) == true)
                 return cached.Lease();
 
             if (_inFlight is not null)
             {
-                Decision("joined_inflight");
+                if (!ReferenceEquals(attemptCreatedByObserver, _inFlight))
+                    Decision("joined_inflight");
                 attempt = _inFlight;
             }
             else
@@ -310,17 +311,17 @@ public sealed class JwksCoordinator : IDisposable
         }
     }
 
-    private void ExpireSnapshotLocked(long now)
+    private Attempt? ExpireSnapshotLocked(long now)
     {
         if (_snapshot is null || now < _snapshot.ExpiresAt)
-            return;
+            return null;
         if (_inFlight is not null)
             InvalidateAttemptLocked("generation_invalidated");
         RetireSnapshotLocked();
         SetReadinessLocked(false);
         _generation = CheckedIncrement(_generation);
         _attemptedGeneration = false;
-        _ = CreateAttemptLocked(JwksTrigger.Expiry, now);
+        return CreateAttemptLocked(JwksTrigger.Expiry, now);
     }
 
     private void InvalidateAttemptLocked(string decision)

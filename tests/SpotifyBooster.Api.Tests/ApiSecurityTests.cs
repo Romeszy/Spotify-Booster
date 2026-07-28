@@ -478,6 +478,60 @@ public sealed class ApiSecurityTests : IDisposable
     }
 
     [Fact]
+    public async Task RotationOverlapRemainsValidForTwentyMinutesThenPurgeRetiresOldKey()
+    {
+        var calls = 0;
+        using var coordinator = Coordinator((_, _) => Task.FromResult(Json(HttpStatusCode.OK,
+            Interlocked.Increment(ref calls) < 4 ? RsaJwks("old", "new") : RsaJwks("new"))));
+        using (await coordinator.FindAsync("old", TestContext.Current.CancellationToken)) { }
+        for (var interval = 0; interval < 2; interval++)
+        {
+            _time.Advance(TimeSpan.FromMinutes(10));
+            using var old = await coordinator.FindAsync("old", TestContext.Current.CancellationToken);
+            using var current = await coordinator.FindAsync("new", TestContext.Current.CancellationToken);
+            Assert.NotNull(old);
+            Assert.NotNull(current);
+        }
+
+        await coordinator.PurgeAsync(TestContext.Current.CancellationToken);
+        using var retained = await coordinator.FindAsync("new", TestContext.Current.CancellationToken);
+        Assert.NotNull(retained);
+        Assert.Null(await coordinator.FindAsync("old", TestContext.Current.CancellationToken));
+        Assert.Equal(4, calls);
+    }
+
+    [Fact]
+    public async Task ConcurrentFailedPurgesInvalidateNonCooperativeOldFetchAndRemainUnready()
+    {
+        var oldResponse = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var purgeResponse = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var purgeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        using var coordinator = Coordinator((_, _) =>
+        {
+            var call = Interlocked.Increment(ref calls);
+            if (call == 1) return oldResponse.Task;
+            purgeStarted.TrySetResult();
+            return purgeResponse.Task;
+        });
+        var old = coordinator.FindAsync("compromised", TestContext.Current.CancellationToken);
+        await WaitUntilAsync(() => Volatile.Read(ref calls) == 1);
+        var firstPurge = coordinator.PurgeAsync(TestContext.Current.CancellationToken);
+        await purgeStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+        var secondPurge = coordinator.PurgeAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(2, calls);
+        purgeResponse.SetResult(Json(HttpStatusCode.ServiceUnavailable, "{}"));
+        await Task.WhenAll(firstPurge, secondPurge);
+        oldResponse.SetResult(Json(HttpStatusCode.OK, RsaJwks("compromised")));
+        Assert.Null(await old);
+        Assert.False(coordinator.IsReady);
+        Assert.Null(await coordinator.FindAsync("compromised", TestContext.Current.CancellationToken));
+        Assert.Equal(2, calls);
+    }
+
+    [Fact]
     public async Task ReadinessProbeRequiresExactThreePropertyDocumentAndNoBearer()
     {
         HttpRequestMessage? observed = null;
@@ -626,6 +680,73 @@ public sealed class ApiSecurityTests : IDisposable
         Assert.Contains(("jwks_refresh_total", "result=success|trigger=cold_start"), counters);
         Assert.Contains(("readiness_transitions_total", "dependency=jwks|to=unready"), counters);
         Assert.Contains(("readiness_transitions_total", "dependency=data_api|to=unready"), counters);
+    }
+
+    [Fact]
+    public async Task FirstExpiryObserverIsLeaderAndOtherNinetyNineObserversJoin()
+    {
+        var decisions = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var metrics = new ApiMetrics();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, current) =>
+        {
+            if (instrument.Name == "jwks_decision_events_total")
+                current.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((_, _, tags, _) =>
+            decisions.Enqueue(tags.ToArray().Single().Value!.ToString()!));
+        listener.Start();
+        var release = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        using var client = new HttpClient(new Handler((_, _) =>
+        {
+            if (Interlocked.Increment(ref calls) == 1)
+                return Task.FromResult(Json(HttpStatusCode.OK, RsaJwks("old")));
+            started.TrySetResult();
+            return release.Task;
+        }));
+        using var coordinator = new JwksCoordinator(client, Options(), _time, metrics);
+        using (await coordinator.FindAsync("old", TestContext.Current.CancellationToken)) { }
+        decisions.Clear();
+        _time.Advance(TimeSpan.FromMinutes(10));
+        var observers = new List<Task<JwkKey?>>();
+        observers.Add(coordinator.FindAsync("new", TestContext.Current.CancellationToken));
+        await started.Task.WaitAsync(TestContext.Current.CancellationToken);
+        for (var index = 1; index < 100; index++)
+            observers.Add(coordinator.FindAsync("new", TestContext.Current.CancellationToken));
+        release.SetResult(Json(HttpStatusCode.OK, RsaJwks("new")));
+        var leases = await Task.WhenAll(observers);
+        foreach (var lease in leases) lease?.Dispose();
+        Assert.Equal(1, decisions.Count(value => value == "leader_created"));
+        Assert.Equal(99, decisions.Count(value => value == "joined_inflight"));
+        Assert.Equal(2, calls);
+    }
+
+    [Fact]
+    public void ReadinessMetricsCaptureOnlyClosedUnknownReadyUnreadyReadyTransitions()
+    {
+        var transitions = new List<string>();
+        using var metrics = new ApiMetrics();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, current) =>
+        {
+            if (instrument.Name == "readiness_transitions_total")
+                current.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((_, _, tags, _) =>
+            transitions.Add(string.Join("|", tags.ToArray().OrderBy(static tag => tag.Key)
+                .Select(static tag => $"{tag.Key}={tag.Value}"))));
+        listener.Start();
+        var state = new ReadinessState(_time, metrics);
+        state.ObserveDataApi(true);
+        state.ObserveDataApi(false);
+        state.ObserveDataApi(true);
+        Assert.Collection(transitions,
+            value => Assert.Equal("dependency=data_api|to=unready", value),
+            value => Assert.Equal("dependency=data_api|to=ready", value));
+        Assert.All(transitions, value => Assert.DoesNotContain("@", value, StringComparison.Ordinal));
     }
 
     [Fact]

@@ -84,6 +84,32 @@ public sealed class SupabaseAuthenticationServiceTests
     }
 
     [Fact]
+    public async Task SequentialRefreshUsesRotatedTokenAndNeverReusesPreviousToken()
+    {
+        const string initial = "refresh-R0";
+        const string rotated = "refresh-R1";
+        var bodies = new List<string>();
+        var calls = 0;
+        var store = new InMemoryAuthSessionStore();
+        await store.WriteAsync(Session() with { RefreshToken = initial },
+            TestContext.Current.CancellationToken);
+        var service = Create(async (request, cancellationToken) =>
+        {
+            bodies.Add(await request.Content!.ReadAsStringAsync(cancellationToken));
+            var next = Interlocked.Increment(ref calls) == 1 ? rotated : "refresh-R2";
+            return Json(HttpStatusCode.OK, SessionJsonWithRefresh(next));
+        }, store);
+
+        await service.RefreshSessionAsync(TestContext.Current.CancellationToken);
+        await service.RefreshSessionAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, bodies.Count);
+        Assert.Contains(initial, bodies[0], StringComparison.Ordinal);
+        Assert.Contains(rotated, bodies[1], StringComparison.Ordinal);
+        Assert.DoesNotContain(initial, bodies[1], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task SignOutHidesSessionBeforeRemoteRevocationCompletes()
     {
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -364,6 +390,13 @@ public sealed class SupabaseAuthenticationServiceTests
     {
         access_token = "access-token",
         refresh_token = "refresh-token",
+        expires_in = 3600,
+        user = new { id = UserId, email = "u@example.test", email_confirmed_at = "2026-01-01T00:00:00Z" }
+    });
+    private static string SessionJsonWithRefresh(string refreshToken) => JsonSerializer.Serialize(new
+    {
+        access_token = "access-token",
+        refresh_token = refreshToken,
         expires_in = 3600,
         user = new { id = UserId, email = "u@example.test", email_confirmed_at = "2026-01-01T00:00:00Z" }
     });
