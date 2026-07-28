@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Logging;
 using SpotifyBooster.Api;
 
 namespace SpotifyBooster.Api.Tests;
@@ -620,6 +621,69 @@ public sealed class ApiSecurityTests : IDisposable
     }
 
     [Fact]
+    public void ReadinessTransportPolicyUsesShortStrictConnectionPools()
+    {
+        using var handler = DataApiReadinessTransportPolicy.CreateHandler();
+
+        Assert.False(handler.AllowAutoRedirect);
+        Assert.Null(handler.SslOptions.RemoteCertificateValidationCallback);
+        Assert.Equal(TimeSpan.FromSeconds(15), handler.PooledConnectionLifetime);
+        Assert.Equal(TimeSpan.FromSeconds(5), handler.PooledConnectionIdleTimeout);
+        Assert.Equal(TimeSpan.FromSeconds(2), handler.ConnectTimeout);
+        Assert.Equal(Timeout.InfiniteTimeSpan,
+            DataApiReadinessTransportPolicy.HandlerLifetime);
+        Assert.True(handler.PooledConnectionLifetime < TimeSpan.FromSeconds(30));
+    }
+
+    [Fact]
+    public async Task ReadinessProbeLogsOnlyClosedResultsWhenTheyChange()
+    {
+        var calls = 0;
+        var sensitiveUri = "https://private-host.example/rest/v1/private";
+        using var client = new HttpClient(new Handler((_, cancellationToken) =>
+            Interlocked.Increment(ref calls) switch
+            {
+                1 or 2 => Task.FromResult(Json(HttpStatusCode.OK,
+                    """{"service":"spotify-booster-data","status":"ok","version":1}""")),
+                3 => Task.FromResult(Json(HttpStatusCode.ServiceUnavailable, "{}")),
+                4 => Task.FromResult(Json(HttpStatusCode.OK, "{private-invalid-json")),
+                5 => Task.FromException<HttpResponseMessage>(
+                    new HttpRequestException(sensitiveUri)),
+                _ => Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken)
+                    .ContinueWith(_ => Json(HttpStatusCode.OK, "{}"),
+                        CancellationToken.None, TaskContinuationOptions.None,
+                        TaskScheduler.Default)
+            }));
+        var logger = new CaptureLogger<DataApiReadinessProbe>();
+        var state = new ReadinessState(_time, _metrics);
+        var probe = new DataApiReadinessProbe(client, Options(), state, _time, logger);
+
+        Assert.True(await probe.ProbeAsync(TestContext.Current.CancellationToken));
+        Assert.True(await probe.ProbeAsync(TestContext.Current.CancellationToken));
+        Assert.False(await probe.ProbeAsync(TestContext.Current.CancellationToken));
+        Assert.False(await probe.ProbeAsync(TestContext.Current.CancellationToken));
+        Assert.False(await probe.ProbeAsync(TestContext.Current.CancellationToken));
+        var timeout = probe.ProbeAsync(TestContext.Current.CancellationToken);
+        _time.Advance(TimeSpan.FromSeconds(2));
+        Assert.False(await timeout.WaitAsync(TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            ["ready", "http_status", "invalid_shape", "transport", "timeout"],
+            logger.Entries.Select(static entry => entry.Result));
+        Assert.All(logger.Entries, entry =>
+        {
+            Assert.Equal(2101, entry.EventId.Id);
+            Assert.Equal(LogLevel.Information, entry.Level);
+            Assert.Null(entry.Exception);
+            Assert.DoesNotContain(sensitiveUri, entry.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("503", entry.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("sb_publishable", entry.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain('@', entry.Message);
+        });
+    }
+
+    [Fact]
     public async Task ReadinessRejectsAdditionalProperties()
     {
         using var client = new HttpClient(new Handler((_, _) => Task.FromResult(Json(HttpStatusCode.OK,
@@ -778,7 +842,8 @@ public sealed class ApiSecurityTests : IDisposable
                 """{"service":"spotify-booster-data","status":"ok","version":1}"""));
         }));
         var state = new ReadinessState(_time, _metrics);
-        var probe = new DataApiReadinessProbe(client, Options(), state, _time);
+        var logger = new CaptureLogger<DataApiReadinessProbe>();
+        var probe = new DataApiReadinessProbe(client, Options(), state, _time, logger);
         var older = probe.ProbeAsync(TestContext.Current.CancellationToken);
         await WaitUntilAsync(() => Volatile.Read(ref calls) == 1);
 
@@ -788,6 +853,7 @@ public sealed class ApiSecurityTests : IDisposable
         firstResponse.SetResult(Json(HttpStatusCode.ServiceUnavailable, "{}"));
         Assert.False(await older);
         Assert.True(state.IsDataApiReady);
+        Assert.Equal(["ready"], logger.Entries.Select(static entry => entry.Result));
     }
 
     [Fact]
@@ -1755,6 +1821,23 @@ public sealed class ApiSecurityTests : IDisposable
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             send(request, cancellationToken);
+    }
+    private sealed class CaptureLogger<T> : ILogger<T>
+    {
+        public List<(LogLevel Level, EventId EventId, string Result, string Message,
+            Exception? Exception)> Entries
+        { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            var properties = state as IEnumerable<KeyValuePair<string, object?>>;
+            var result = properties?.Single(property => property.Key == "Result")
+                .Value?.ToString() ?? "";
+            Entries.Add((logLevel, eventId, result, formatter(state, exception), exception));
+        }
     }
     private sealed class ThrowingContent(Exception exception) : HttpContent
     {

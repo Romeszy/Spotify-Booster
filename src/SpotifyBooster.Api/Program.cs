@@ -24,7 +24,8 @@ builder.Services.AddSingleton<SupabaseJwtValidator>();
 builder.Services.AddHttpClient<DataApiClient>(client => client.BaseAddress = options.Origin)
     .ConfigurePrimaryHttpMessageHandler(CreateStrictHandler);
 builder.Services.AddHttpClient<DataApiReadinessProbe>(client => client.BaseAddress = options.Origin)
-    .ConfigurePrimaryHttpMessageHandler(CreateStrictHandler);
+    .ConfigurePrimaryHttpMessageHandler(DataApiReadinessTransportPolicy.CreateHandler)
+    .SetHandlerLifetime(DataApiReadinessTransportPolicy.HandlerLifetime);
 builder.Services.AddHostedService<DataApiReadinessHostedService>();
 
 var app = builder.Build();
