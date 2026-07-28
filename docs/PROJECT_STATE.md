@@ -30,9 +30,12 @@ le lint PostgreSQL, pgTAP `110/110`, l’atomicité du runner, l’E2E Auth/API 
 à deux utilisateurs, la panne/récupération readiness et la lecture JWKS avec
 `curl --cacert` ont réussi sous WSL avec CA explicite. Le gate renforcé fixe
 l’archive officielle du SDK Linux `8.0.423` et son SHA-512 avant extraction,
-exige une ligne `ERROR` liant la sentinelle au contexte `(SQLSTATE P0001)`
-avant toute preuve d’atomicité, rejette les sorties start/reset et scanne tous
-les autres logs temporaires. Stack, API,
+prouve l’exécution de la migration fautive par un handler qui vérifie le
+SQLSTATE et le message exacts de l’exception `P0001`, incrémente une séquence
+PostgreSQL non transactionnelle, puis relance l’exception. Il vérifie ensuite
+le rollback de l’objet et de la version de migration, ainsi que le nettoyage
+des trois artefacts. Il rejette les sorties start/reset et scanne tous les
+autres logs temporaires. Stack, API,
 SDK Linux temporaire, utilisateurs et logs temporaires ont ensuite été
 supprimés.
 

@@ -105,13 +105,16 @@ grep -q 'Result: PASS' pgtap.log
 grep -q 'Tests=110' pgtap.log
 
 CURRENT_STAGE='migration_atomicity'
-timeout --foreground 180 env \
+if ! timeout --foreground 180 env \
   SSL_CERT_FILE="$CERT" SUPABASE_CLI="$CLI" \
   bash "$PROJECT/scripts/test-migration-atomicity.sh" "$PROJECT" \
-  >atomicity.log 2>&1
+  >atomicity.log 2>&1; then
+  grep -E '^migration_atomicity=[a-z0-9_]+$' atomicity.log >&2 || true
+  false
+fi
 grep -q 'migration_atomicity_object_rollback=ok' atomicity.log
 grep -q 'migration_atomicity_version_rollback=ok' atomicity.log
-grep -q 'migration_atomicity_expected_sentinel=ok' atomicity.log
+grep -q 'migration_atomicity_execution_marker=ok' atomicity.log
 grep -q 'migration_atomicity_log_scan=ok' atomicity.log
 
 CURRENT_STAGE='database_reset_after_atomicity'

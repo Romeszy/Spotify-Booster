@@ -40,32 +40,52 @@ test('real Auth/API gate covers all destructive transitions and cleanup', () => 
 
 test('migration probe proves object and version rollback before safe cleanup', () => {
   const runner = atomicity.indexOf('"$CLI" migration up');
-  const sentinelCheck = atomicity.indexOf(
-    'grep -Eq -- "$SENTINEL_ERROR_PATTERN"');
+  const sqlState = atomicity.indexOf("errcode = 'P0001'");
+  const sentinel = atomicity.indexOf(
+    "message = 'SPOTIFY_BOOSTER_ATOMICITY_SENTINEL_7F31A9C2'");
+  const diagnostics = atomicity.indexOf('get stacked diagnostics');
+  const messageCheck = atomicity.indexOf('caught_message is distinct from');
+  const sqlStateCheck = atomicity.indexOf(
+    "caught_sqlstate is distinct from 'P0001'");
+  const executionMarker = atomicity.indexOf(
+    "perform nextval('public.spotify_booster_migration_atomicity_signal')");
+  const rethrow = atomicity.indexOf('      raise;', executionMarker);
   const rollbackProof = atomicity.indexOf('RESULT="$(docker exec');
 
-  assert.match(atomicity, /SENTINEL='SPOTIFY_BOOSTER_ATOMICITY_SENTINEL_[A-F0-9]+'/u);
   assert.match(atomicity,
-    /SENTINEL_ERROR_PATTERN="ERROR:\[\[:space:\]\]\+\$\{SENTINEL\}\[\[:space:\]\]\+\\\\\(SQLSTATE\[\[:space:\]\]\+P0001\\\\\)"/u);
-  const sentinelError =
-    /ERROR:\s+SPOTIFY_BOOSTER_ATOMICITY_SENTINEL_7F31A9C2\s+\(SQLSTATE\s+P0001\)/u;
-  assert.equal(sentinelError.test(
-    "message = 'SPOTIFY_BOOSTER_ATOMICITY_SENTINEL_7F31A9C2';"), false);
-  assert.equal(sentinelError.test(
-    'ERROR: SPOTIFY_BOOSTER_ATOMICITY_SENTINEL_7F31A9C2 (SQLSTATE P0001)'), true);
+    /SIGNAL='public\.spotify_booster_migration_atomicity_signal'/u);
   assert.match(atomicity, /errcode = 'P0001'/u);
   assert.match(atomicity, /message = 'SPOTIFY_BOOSTER_ATOMICITY_SENTINEL_[A-F0-9]+'/u);
   assert.ok(runner >= 0);
-  assert.ok(sentinelCheck > runner);
-  assert.ok(rollbackProof > sentinelCheck);
+  assert.ok(executionMarker >= 0);
+  assert.ok(sqlState < sentinel);
+  assert.ok(sentinel < diagnostics);
+  assert.ok(diagnostics < messageCheck);
+  assert.ok(messageCheck < sqlStateCheck);
+  assert.ok(sqlStateCheck < executionMarker);
+  assert.ok(executionMarker < rethrow);
+  assert.ok(rethrow < runner);
+  assert.ok(rollbackProof > runner);
+  assert.match(atomicity, /caught_message is distinct from/u);
+  assert.match(atomicity, /caught_sqlstate is distinct from 'P0001'/u);
   assert.match(atomicity, /migration_atomicity=log_scan_failed/u);
   assert.match(atomicity, /sb_\(publishable\|secret\)_/u);
   assert.match(atomicity, /BEGIN\[\[:space:\]\]\+\(RSA \|EC \)\?PRIVATE KEY/u);
   assert.match(atomicity, /supabase_migrations\.schema_migrations/u);
   assert.match(atomicity, /to_regclass/u);
-  assert.match(atomicity, /test "\$RESULT" = 'f\|f'/u);
+  assert.match(atomicity, /select is_called and last_value = 1/u);
+  assert.match(atomicity, /test "\$RESULT" = 'f\|f\|t'/u);
   assert.match(atomicity, /drop table if exists/u);
-  assert.match(atomicity, /rm -f -- "\$MIGRATION"/u);
+  assert.match(atomicity, /drop sequence if exists/u);
+  assert.match(atomicity,
+    /migration_atomicity=database_cleanup_verification_failed/u);
+  assert.match(atomicity, /"\$cleanup_state" != 't\|t\|t'/u);
+  assert.match(atomicity, /if ! find "\$LOG_DIR"[\s\S]*>"\$log_list"/u);
+  assert.match(atomicity, /if \(\( grep_status != 1 \)\); then/u);
+  assert.match(atomicity,
+    /if ! rm -f -- "\$MIGRATION" \|\| \[\[ -e "\$MIGRATION" \]\]/u);
+  assert.match(atomicity,
+    /if ! rm -rf -- "\$LOG_DIR" \|\| \[\[ -e "\$LOG_DIR" \]\]/u);
   assert.doesNotMatch(atomicity,
     /SUPABASE_SERVICE_ROLE_KEY|sb_secret_[A-Za-z0-9_-]{20,}/u);
 });
@@ -79,6 +99,8 @@ test('WSL gate confines runtime, logs, and cleanup to temporary paths', () => {
   assert.match(finalGate, /"\$CLI" stop --project-id "\$PROJECT_ID"/u);
   assert.match(finalGate, /find "\$TOOL_DIR" -type f -name '\*\.log' -print0/u);
   assert.match(finalGate, /if ! scan_temporary_logs; then/u);
+  assert.match(finalGate,
+    /grep -E '\^migration_atomicity=\[a-z0-9_\]\+\$' atomicity\.log >&2/u);
   assert.match(finalGate, /rm -rf -- "\$TOOL_DIR"/u);
   assert.doesNotMatch(finalGate, /NODE_TLS_REJECT_UNAUTHORIZED|--insecure|-k(?:\s|$)/u);
 });
@@ -144,7 +166,7 @@ test('secret scanner distinguishes .NET categories from JWTs and exact values', 
     assert.ok(finalGate.includes(forbiddenEvidence),
       `missing log scanner evidence: ${forbiddenEvidence}`);
   assert.match(finalGate, /grep -Fq -- "\$PUBLISHABLE_KEY"/u);
-  assert.match(finalGate, /migration_atomicity_expected_sentinel=ok/u);
+  assert.match(finalGate, /migration_atomicity_execution_marker=ok/u);
   assert.match(finalGate, /migration_atomicity_log_scan=ok/u);
   assert.match(finalGate, /"\$CLI" start --workdir "\$PROJECT" >\/dev\/null 2>&1/u);
   assert.match(finalGate, /"\$CLI" db reset --local --workdir "\$PROJECT" >\/dev\/null 2>&1/u);

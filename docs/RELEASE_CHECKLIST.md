@@ -61,10 +61,11 @@ npm run gate:local:auth-api
 - [x] reset depuis zéro ;
 - [x] lint sans erreur bloquante ;
 - [x] pgTAP `110/110` ;
-- [x] test statique : une ligne `ERROR` liant la sentinelle à
-  `(SQLSTATE P0001)` est exigée avant la preuve d’atomicité ;
-- [ ] **Gate final renforcé :** sentinelle/SQLSTATE observés, objet et version
-  absents ;
+- [x] test statique : le probe crée hors transaction une séquence PostgreSQL ;
+  un handler vérifie le SQLSTATE et le message exacts de `P0001`, incrémente
+  la séquence, puis relance l’exception ;
+- [x] **Gate final renforcé :** échec du runner, marqueur non transactionnel
+  persistant, objet et version absents, puis nettoyage vérifié ;
 - [x] RPC health exacte avec seule clé publiable ;
 - [x] test statique : SDK `8.0.423` téléchargé depuis l’archive officielle,
   SHA-512 vérifié avant extraction et aucun `dotnet-install.sh` ;

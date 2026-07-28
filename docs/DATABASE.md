@@ -108,17 +108,20 @@ certificat dans Windows. Un résidu précédemment identifié dans
 `CurrentUser\Root` a été supprimé ; la validation finale doit conserver un
 compte nul. Le JWKS a été vérifié séparément avec `curl --cacert`.
 
-`test:db:atomicity` ajoute uniquement pendant le test une migration versionnée
-jetable qui crée une table puis lève une exception SQL volontaire, identifiée
-par une sentinelle dédiée et le SQLSTATE fixe `P0001`. Avec la CLI exacte
-`2.109.1`, le gate exige d’abord une ligne `ERROR` associant cette sentinelle
-au contexte `(SQLSTATE P0001)` dans la sortie du runner : un simple écho SQL,
-une panne TLS, CLI ou parseur ne peut donc pas servir de preuve. Il vérifie
-ensuite que ni `to_regclass(...)`, ni la version dans
-`supabase_migrations.schema_migrations` ne subsistent. Le log du runner est
-scanné sans afficher son contenu, puis le fichier, l’objet défensif et toute
-version résiduelle sont supprimés par trap. Un reset propre est rejoué avant
-l’E2E.
+`test:db:atomicity` crée d’abord, hors de la transaction de migration, une
+séquence PostgreSQL jetable. La migration versionnée de test crée ensuite une
+table et lève volontairement l’exception `P0001`. Un handler vérifie alors le
+SQLSTATE et le message exacts, exécute `nextval(...)` sur la séquence, puis
+relance l’exception. L’incrément de séquence est non transactionnel : sa
+persistance prouve que le runner a traité l’exception volontaire attendue. Le
+gate exige simultanément l’échec du runner, ce marqueur
+persistant, l’absence de la table via `to_regclass(...)` et l’absence de la
+version dans `supabase_migrations.schema_migrations`. Une panne TLS, CLI,
+parseur, SQL sans rapport ou antérieure à l’exécution ne peut donc pas servir
+de preuve. Le log du runner est scanné sans afficher son contenu, puis la
+migration, la table défensive, la séquence et toute version résiduelle sont
+supprimées et leur absence est vérifiée par trap. Un reset propre est rejoué
+avant l’E2E.
 
 Le gate Linux télécharge directement l’archive officielle du SDK .NET
 `8.0.423`, vérifie son SHA-512 fixé avant extraction et n’exécute aucun script

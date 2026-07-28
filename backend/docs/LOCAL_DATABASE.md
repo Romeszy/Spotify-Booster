@@ -100,7 +100,11 @@ outage/recovery readiness, and TLS/JWKS behavior are runtime evidence and must
 not be reported as passing unless Docker and the explicitly trusted strict TLS
 origin were actually exercised.
 
-The atomicity probe is fail-closed: the migration runner must expose the
-dedicated SQL exception sentinel on an `ERROR` line with `(SQLSTATE P0001)`
-before rollback is assessed. Echoed SQL, a TLS, CLI, or parser failure is not
-accepted as rollback evidence.
+The atomicity probe is fail-closed. Before running the disposable migration,
+the test creates a PostgreSQL sequence outside the migration transaction. The
+migration creates a probe table, raises the dedicated `P0001` exception, then
+catches it to verify its exact SQLSTATE and message. Only that verified handler
+advances the sequence before rethrowing. The gate accepts atomicity only when
+the runner fails, the non-transactional sequence advance remains visible, and
+both the probe table and migration-version row are absent. A TLS, CLI, parser,
+unrelated SQL, or pre-execution failure cannot satisfy this combined proof.
