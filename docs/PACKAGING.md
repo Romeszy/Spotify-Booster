@@ -142,9 +142,12 @@ Le manifeste est écrit en UTF-8 sans BOM. Le rapport consigne la version inform
 
 Si la signature intervient après le script, recalculez le manifeste sur les fichiers signés.
 
-## État du package de livraison
+## État du package de livraison desktop antérieur à la Phase A
 
-La livraison du 28 juillet 2026 est régénérée par le script complet depuis le commit propre. Elle a :
+La livraison desktop antérieure à la fondation commerciale, produite le
+28 juillet 2026, a été régénérée par le script complet depuis son commit
+propre. Son résultat historique ne valide pas les projets Phase A et ne doit
+pas être présenté comme une release commerciale. Elle a :
 
 - réussi le build Release sans avertissement ni erreur ;
 - réussi `162/162` tests ;

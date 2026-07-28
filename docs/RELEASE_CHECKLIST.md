@@ -1,164 +1,90 @@
 # Checklist de release
 
-Cette checklist est un gate. Une case non cochée reste un travail à faire ; elle ne constitue pas une preuve implicite.
+## Statut
 
-## Identité
+Cette checklist décrit le gate d’intégration Phase A. Elle n’autorise pas une
+release commerciale. Authenticode, .NET 10, Stripe, updater, production et
+validation utilisateur complète sont différés.
 
-- [x] Version `0.2.0` du `.csproj` confirmée
-- [x] Branche et commit consignés dans le rapport de provenance
-- [x] package régénéré depuis un worktree propre
-- [x] `LICENSE.txt` ajouté et embarqué
-- [ ] Notes de version rédigées
+## Source et dépendances
 
-## Build et tests
+- [ ] worktree propre et commit identifié ;
+- [ ] restauration NuGet verrouillée ;
+- [ ] `npm ci` depuis `backend` avec Node `>=20` ;
+- [ ] Supabase CLI locale exactement `2.109.1` ;
+- [ ] aucune CLI globale substituée ;
+- [ ] audits NuGet et npm sans vulnérabilité bloquante ;
+- [ ] scan de secrets, clés privées, tokens et callbacks TLS permissifs ;
+- [ ] `node_modules` et `.local` absents des artefacts.
 
-- [x] `restore --locked-mode` réussi
-- [x] build Release réussi
-- [x] zéro avertissement et zéro erreur
-- [x] tests Core/Infrastructure `64/64`
-- [x] tests DSP `71/71`
-- [x] tests Audio `27/27`
-- [x] total V2 `162/162`
-- [x] 162 tests revalidés par le script de release après le commit
-- [ ] smoke test WPF démarrage/fermeture réussi
-- [ ] audit NuGet vulnérabilités refait
-- [ ] audit NuGet dépréciation refait
+## Build et tests .NET
 
-## DSP
+```powershell
+& ".\.dotnet\dotnet.exe" restore .\SpotifyBooster.sln --locked-mode
+& ".\.dotnet\dotnet.exe" build .\SpotifyBooster.sln --configuration Release --no-restore
+& ".\.dotnet\dotnet.exe" test .\SpotifyBooster.sln --configuration Release --no-build
+& ".\.dotnet\dotnet.exe" format .\SpotifyBooster.sln --verify-no-changes --no-restore
+```
 
-- [x] `0 dB = ×1 = 100 %`
-- [x] plage standard bornée à `+14 dB`
-- [x] plafond Expert brut configurable de `+25 à +1000 dB`, avec `+1000 dB` livré par défaut
-- [x] `+1000 dB = ×10^50 = 10^52 %`
-- [x] gain principal lissé en dB, calcul double et magnitudes internes bornées à `±64`
-- [x] gain mémorisé non neutre rampé depuis `0 dB` à l’ouverture/reconstruction, sans modifier la cible
-- [x] Expert brut peut dépasser le plafond du limiteur, qui n’est pas imposé dans ce mode
-- [ ] confirmation Expert brut vérifiée
-- [x] Protégé force soft clipper et limiteur
-- [x] Protégé borne le gain de sortie à `0 dB` maximum
-- [x] Direct/Expert n’appliquent aucune réduction cachée
-- [x] Direct/Expert avertissent si le gain de sortie est positif
-- [x] aucune consigne de gain modifiée automatiquement
-- [x] panique remet gain principal et sortie à `0 dB`
-- [x] Bass Boost 35/200 Hz et +18 dB vérifié
-- [x] égaliseur trois bandes vérifié
-- [x] compresseur, soft clipper et limiteur vérifiés séparément
-- [x] `DspSampleProvider.Read` sans allocation après update/panique
-- [x] métriques construites et publiées hors callback audio
+- [ ] build sans erreur ni avertissement important ;
+- [ ] tous les projets Contracts/Auth/API et tests intégrés à la solution ;
+- [ ] aucun échec de test ;
+- [ ] total final recopié dans `PROJECT_STATE.md` après exécution, jamais
+  additionné depuis des voies indépendantes.
 
-## Audio réel
+## Supabase local
 
-Route ouverte puis arrêtée sans erreur, mais aucun signal injecté et vu-mètre à `−∞`.
+Prérequis : Docker Desktop démarré, Windows PowerShell 5.1+ ou PowerShell 7,
+Node `>=20`, OpenSSL et confiance explicite du certificat du compte courant.
 
-- [ ] VB-CABLE installé manuellement depuis l’éditeur
-- [ ] seul Spotify routé vers CABLE Input
-- [ ] CABLE Output capturé par Booster
-- [ ] transit vers casque/enceintes confirmé
-- [ ] aucun écho ou feedback
-- [ ] test à 44,1 kHz
-- [ ] test à 48 kHz
-- [ ] session 30–60 minutes
-- [ ] underruns/overruns consignés
-- [ ] débranchement/rebranchement
-- [ ] veille/reprise
-- [ ] sortie filaire
-- [ ] sortie USB/HDMI si supportée
-- [ ] Bluetooth testé ou explicitement exclu
-- [ ] comportement casque à faible volume validé
+Depuis `backend` :
 
-## Bureau et Windows
+```powershell
+npm run db:reset
+npm run db:lint
+npm run test:db
+```
 
-- [ ] assistant sept étapes terminé au clavier
-- [ ] tray actif/inactif et double-clic
-- [ ] menu tray complet
-- [ ] MinimizeToTray
-- [ ] Ask
-- [ ] Exit
-- [ ] démarrage HKCU Run
-- [ ] `--minimized`
-- [ ] suppression de l’entrée de démarrage
-- [ ] traitement automatique avec route valide
-- [ ] comportement avec route absente
-- [ ] six raccourcis globaux
-- [ ] conflit de raccourci signalé
-- [ ] export diagnostic relu
-- [ ] aucune donnée audio enregistrée
+- [ ] origine exacte `https://127.0.0.1:54321` ;
+- [ ] aucune preuve obtenue par HTTP ou acceptation TLS permissive ;
+- [ ] reset depuis zéro ;
+- [ ] lint sans erreur bloquante ;
+- [ ] pgTAP complet ;
+- [ ] RPC health exacte avec seule clé publiable ;
+- [ ] tests Auth 9/10 caractères ;
+- [ ] tests deux utilisateurs et absence d’IDOR ;
+- [ ] rotation refresh et logout ;
+- [ ] panne/récupération readiness ;
+- [ ] logs/TRX sans secret.
 
-## Migration et stockage
+## Desktop et DSP
 
-- [ ] réglages neufs en schéma V2
-- [ ] migration V1 `100 % → 0 dB`
-- [ ] migration V1 `500 % → +13,9794 dB`
-- [ ] backup `settings.schema1.backup.json`
-- [ ] JSON invalide → valeurs sûres
-- [ ] stockage `%LOCALAPPDATA%`
-- [ ] mode portable avec `portable.mode`
-- [ ] dossier portable non inscriptible testé
-- [ ] rotation des logs
+- [ ] RawExpert `0..+75 dB`, pas `0,5 dB` ;
+- [ ] Direct/Protégé inchangés à `0..+14 dB` ;
+- [ ] migrations V1/V2 vers V3 et backups vérifiés ;
+- [ ] NaN/Inf, overflow, silence, lissage et sample rates couverts ;
+- [ ] callback audio sans réseau, fichier, verrou long ou allocation ;
+- [ ] panique, débranchement et reconstruction testés ;
+- [ ] transit réel Spotify → câble → Booster → sortie testé manuellement ;
+- [ ] casque testé à faible niveau uniquement.
 
-## Interface et accessibilité
+## Documentation et livraison
 
-- [ ] taille minimale `880 × 620`
-- [ ] mise à l’échelle 125 %
-- [ ] mise à l’échelle 150 %
-- [ ] ordre de tabulation
-- [ ] focus visible
-- [ ] Narrateur Windows
-- [ ] overlay Expert brut au clavier
-- [ ] contraste des états
-- [ ] textes français relus
-- [ ] icônes originales correctement embarquées
+- [ ] Phase B–E marquées comme différées ;
+- [ ] `THIRD_PARTY_NOTICES.md`, SBOM et licences du publish final ;
+- [ ] rapport de provenance et hashes ;
+- [ ] installation/désinstallation sur machine propre ;
+- [ ] DPI, clavier, Narrateur et accessibilité ;
+- [ ] binaires Authenticode signés.
 
-## Packaging
+Les quatre derniers contrôles de commercialisation ne sont pas satisfaits en
+Phase A. Ne pas présenter les `.exe` actuels comme une release commerciale.
 
-- [x] `artifacts\portable\SpotifyBooster-Portable-x64.exe` produit
-- [x] `artifacts\installer\SpotifyBooster-Setup-x64.exe` produit avec NSIS 3.12
-- [x] `artifacts\reports\release-report.txt` indique `Status: Complete`
-- [x] provenance branche/commit/worktree incluse
-- [x] `artifacts\checksums\SHA256SUMS.txt` produit sans BOM
-- [x] architecture `win-x64` confirmée et verrouillée
-- [x] contenu du dossier publié inspecté
-- [x] `LICENSE.txt`, `THIRD_PARTY_NOTICES.md` et `licenses\` embarqués
-- [x] aucune donnée utilisateur embarquée
-- [x] aucun pilote ou installateur VB-CABLE embarqué
-- [ ] test sur machine propre
-- [x] installation et désinstallation silencieuses testées sur cette machine, sans résidu
-- [x] métadonnées de version des deux exécutables vérifiées
+## Rollback
 
-## Sécurité, licences et conformité
-
-- [x] `THIRD_PARTY_NOTICES.md` à jour
-- [x] textes de licences runtime applicables inclus
-- [ ] SBOM généré et revu
-- [x] revue de l’absence de réseau/télémétrie
-- [x] revue de l’écriture HKCU et du nettoyage par le désinstallateur
-- [ ] revue juridique Spotify/VB-Audio
-- [ ] plan .NET 8 avant le 10 novembre 2026
-
-## Signature et preuves
-
-- [ ] exécutable signé — binaire courant non signé
-- [ ] installateur signé — binaire courant non signé
-- [ ] chaîne de signature vérifiée
-- [ ] horodatage vérifié
-- [ ] archive finale créée après signature
-- [ ] taille de chaque artefact consignée
-- [x] SHA-256 de chaque artefact consigné dans le manifeste final
-- [x] trois rapports TRX attachés au package
-- [ ] rapport de QA manuelle attaché
-
-## Tableau de livraison
-
-Les hashes et tailles ne sont pas dupliqués dans ce document : `artifacts\checksums\SHA256SUMS.txt` et le rapport de release sont les sources de vérité de la construction courante.
-
-| Artefact | Taille | SHA-256 | Signature | QA machine propre |
-|---|---:|---|---|---|
-| `SpotifyBooster-Portable-x64.exe` | Voir artefact final | Voir manifeste final | Non signé | Non validée |
-| `SpotifyBooster-Setup-x64.exe` | Voir artefact final | Voir manifeste final | Non signé | Non validée |
-
-## Décision
-
-- [ ] **GO** : tous les gates bloquants sont fermés
-- [x] **NO-GO** : signal audio réel, machine propre, DPI, SBOM et signature restent ouverts
-
-Décision, date et responsable : **à compléter après validation**.
+- [ ] binaire précédent identifié et vérifié ;
+- [ ] sauvegarde base testée ;
+- [ ] procédure JWKS exercée ;
+- [ ] backups de configuration V1/V2 conservés ;
+- [ ] retrait du certificat TLS local documenté ;
+- [ ] propriétaire et décision go/no-go consignés.

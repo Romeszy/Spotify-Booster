@@ -68,13 +68,13 @@ Le gain de sortie est placé après le limiteur : une valeur positive peut recr�
 
 Le mode Protégé refuse toute valeur positive et la ramène au plus à `0 dB`. Direct et Expert brut l’autorisent, avec un avertissement visible.
 
-La V2 ne diminue pas automatiquement et durablement la consigne de gain. Si le gain affiché change, vérifiez un raccourci global, une action du tray, un profil ou la panique. La différence momentanée entre gain demandé et appliqué est normale pendant le lissage.
+La V3 ne diminue pas automatiquement et durablement la consigne de gain. Si le gain affiché change, vérifiez un raccourci global, une action du tray, un profil ou la panique. La différence momentanée entre gain demandé et appliqué est normale pendant le lissage.
 
 ## Direct ou Expert brut sature immédiatement
 
-Ces modes désactivent les étages dynamiques lors de leur sélection. Repassez en Protégé ou réactivez manuellement le soft clipper/limiteur. Expert brut n’a aucune protection cachée et autorise par défaut jusqu’à `+1000 dB`.
+Ces modes désactivent les étages dynamiques lors de leur sélection. Repassez en Protégé ou réactivez manuellement le soft clipper/limiteur. Expert brut n’a aucune protection cachée et autorise jusqu’à `+75 dB` par pas de `0,5 dB`.
 
-À `+1000 dB`, le facteur mathématique demandé vaut `10^50`. Une telle amplitude brute ne tient pas dans un échantillon float32 : le DSP lisse le gain en dB, calcule en double précision et borne les magnitudes internes à `±64`. Le signal reste fini, mais le résultat est essentiellement saturé ou limité, ne décrit pas directement le volume perçu et n’apporte aucune puissance physique supplémentaire. Cette borne de stabilité ne remplace pas le limiteur : en Expert brut, la sortie peut dépasser son plafond configuré.
+À `+75 dB`, le facteur mathématique demandé vaut environ `5623,413`. Le DSP lisse le gain en dB, calcule en double précision et ne sature qu’un overflow numérique à `±float.MaxValue`. Le résultat peut être immédiatement saturé ou distordu, ne décrit pas le volume perçu et n’apporte aucune garantie de sécurité auditive. En Expert brut, la sortie peut dépasser le plafond configuré lorsque le limiteur est désactivé ou lorsqu’un gain de sortie positif est appliqué après lui.
 
 ## Le bouton panique ne semble pas instantané
 

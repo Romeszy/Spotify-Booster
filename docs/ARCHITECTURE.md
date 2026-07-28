@@ -20,10 +20,13 @@ L’application ne change ni le périphérique Windows par défaut, ni le volume
 | Projet | Cible | Responsabilité |
 |---|---|---|
 | `SpotifyBooster.App` | `net8.0-windows10.0.19041.0` | WPF, MVVM, navigation, assistant, tray, raccourcis et composition DI |
-| `SpotifyBooster.Core` | `net8.0` | contrats, modèles, réglages V2, validation et état global |
+| `SpotifyBooster.Contracts` | `net8.0` | contrats Auth, API, entitlements et updates sans WPF |
+| `SpotifyBooster.Core` | `net8.0` | abstractions, modèles, réglages V3, validation et état global |
 | `SpotifyBooster.Audio` | `net8.0-windows10.0.19041.0` | NAudio/WASAPI, endpoints, tampon, formats, resampling et cycle du moteur |
 | `SpotifyBooster.Infrastructure` | `net8.0-windows10.0.19041.0` | JSON, migration V1, logs, diagnostic, processus Spotify, registre et URI Windows |
 | `SpotifyBooster.Dsp` | `net8.0` | DSP pur, sans dépendance WPF ou NAudio |
+| `SpotifyBooster.Auth` | `net8.0` | adaptateur Supabase Auth, session en mémoire |
+| `SpotifyBooster.Api` | `net8.0` | API ASP.NET Core, JWT/JWKS, Data API et readiness |
 | `SpotifyBooster.Core.Tests` | Windows/.NET 8 | réglages, migration, persistance, diagnostic, logs et intégration Windows |
 | `SpotifyBooster.Dsp.Tests` | `.NET 8` | conversions, filtres, dynamique, pipeline et signaux hors ligne |
 | `SpotifyBooster.Audio.Tests` | Windows/.NET 8 | route, formats, tampon, mapping DSP, récupération et énumération |
@@ -59,11 +62,13 @@ Les trois modes sont des choix explicites :
 |---|---:|---|
 | Protégé | `0 à +14 dB` | force soft clipper et limiteur actifs |
 | Direct | `0 à +14 dB` | désactive compresseur, soft clipper et limiteur |
-| Expert brut | `0 dB` au plafond configuré, `+1000 dB` par défaut | exige un acquittement initial et désactive les trois étages dynamiques |
+| Expert brut | `0 à +75 dB`, par pas de `0,5 dB` | exige un acquittement initial et désactive les trois étages dynamiques |
 
-Après le changement de mode, Direct et Expert brut permettent d’activer manuellement les étages souhaités. Le plafond Expert est configurable de `+25 à +1000 dB` ; `+1000 dB` est aussi la borne architecturale et la valeur livrée. Les modes Protégé et Direct restent bornés à `+14 dB`.
+Après le changement de mode, Direct et Expert brut permettent d’activer manuellement les étages souhaités. Le plafond Expert est fixe à `+75 dB`. Les modes Protégé et Direct restent bornés à `+14 dB` et ne sont pas quantifiés au demi-dB.
 
-Le gain principal est lissé en dB et converti en facteur linéaire en double précision. À l’ouverture ou à la reconstruction du pipeline, un gain mémorisé non nul est rampé depuis `0 dB` jusqu’à sa cible, sans modifier cette cible. Le produit est borné à `±64` avant de revenir dans le pipeline float32. Cette frontière conserve des valeurs finies jusqu’à `+1000 dB`, mais un gain aussi élevé produit essentiellement de la saturation ou de la limitation.
+Le gain principal est lissé en dB et converti en facteur linéaire en double précision. À l’ouverture ou à la reconstruction du pipeline, un gain mémorisé non nul est rampé depuis `0 dB` jusqu’à sa cible, sans modifier cette cible. Tout résultat fini représentable est conservé ; seul un overflow numérique est saturé à `±float.MaxValue`. NaN et Inf sont assainis et comptés.
+
+`+75 dB` vaut environ `×5623,413`. Cette valeur est dangereuse, n’est pas sûre pour l’audition et peut saturer immédiatement. La stabilité numérique ne constitue pas une protection acoustique.
 
 Il n’existe aucune boucle de réduction persistante du gain. Le lissage rejoint la valeur demandée ; seule la commande panique remet explicitement le gain principal et le gain de sortie à `0 dB`.
 
@@ -76,6 +81,9 @@ Il n’existe aucune boucle de réduction persistante du gain. Le lissage rejoin
 - `ISpotifyProcessDetector` : snapshot des processus sans chemin fixe ;
 - `IErrorSink` et `IDiagnosticReportService` : erreurs bornées et export expurgé ;
 - `ApplicationState` : état thread-safe indépendant de WPF.
+
+Les frontières commerciales sont détaillées dans
+[COMMERCIAL_ARCHITECTURE.md](COMMERCIAL_ARCHITECTURE.md).
 
 ## Modèle d’exécution
 

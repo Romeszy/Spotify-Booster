@@ -54,6 +54,21 @@ Copyright © Microsoft Corporation and contributors. License: MIT.
 
 The 10.0.10 packages support `net8.0`. Spotify Booster still targets .NET 8. .NET 8 support ends on 10 November 2026, so a maintained release must migrate or otherwise address the unsupported runtime after that date.
 
+### Microsoft.AspNetCore.Authentication.JwtBearer
+
+| Package | Version | Use | License |
+|---|---:|---|---|
+| `Microsoft.AspNetCore.Authentication.JwtBearer` | 8.0.29 | ASP.NET Core JWT authentication foundation for the Phase A API | MIT |
+
+Copyright © .NET Foundation and contributors.
+
+- Upstream: <https://github.com/dotnet/aspnetcore/tree/v8.0.29>
+- Package: <https://www.nuget.org/packages/Microsoft.AspNetCore.Authentication.JwtBearer/8.0.29>
+- License: <https://github.com/dotnet/aspnetcore/blob/v8.0.29/LICENSE.txt>
+
+This package is used by the API project only. It is not included as an
+authentication feature in the WPF desktop application.
+
 ### .NET Desktop Runtime
 
 Framework-dependent packages require the Microsoft .NET Desktop Runtime 8 on the target machine. Self-contained packages include runtime files produced by the .NET SDK.
@@ -114,6 +129,21 @@ License family: MIT.
 
 `Microsoft.Testing.Extensions.Telemetry` is a transitive test-runner dependency. It is not referenced by the WPF application and does not add application telemetry.
 
+### Microsoft.AspNetCore.Mvc.Testing
+
+| Package | Version | Use | License |
+|---|---:|---|---|
+| `Microsoft.AspNetCore.Mvc.Testing` | 8.0.29 | Hosted ASP.NET Core API integration tests | MIT |
+
+Copyright © .NET Foundation and contributors.
+
+- Upstream: <https://github.com/dotnet/aspnetcore/tree/v8.0.29>
+- Package: <https://www.nuget.org/packages/Microsoft.AspNetCore.Mvc.Testing/8.0.29>
+- License: <https://github.com/dotnet/aspnetcore/blob/v8.0.29/LICENSE.txt>
+
+This package is test-only and is not a runtime dependency of the desktop or
+deployed API.
+
 ### Microsoft/System compatibility packages used by tests
 
 - `Microsoft.Bcl.AsyncInterfaces` 6.0.0
@@ -132,6 +162,24 @@ Copyright © Microsoft Corporation and contributors. License family: MIT.
 Some version 5.0.0 transitive test dependencies have previously been reported as legacy/deprecated. They are not runtime dependencies of Spotify Booster. Vulnerability and deprecation audits must be rerun for the final release; this notice does not claim a fresh security result.
 
 ## External software not distributed
+
+### Supabase CLI
+
+| Package | Version | Use | License |
+|---|---:|---|---|
+| npm package `supabase` | 2.109.1 | Local database/Auth/TLS development and pgTAP execution | MIT |
+
+Copyright © Supabase, Inc. and contributors.
+
+- Upstream: <https://github.com/supabase/cli/tree/v2.109.1>
+- Package: <https://www.npmjs.com/package/supabase/v/2.109.1>
+- License: <https://github.com/supabase/cli/blob/v2.109.1/LICENSE>
+
+The exact version is a development-only dependency in
+`backend/package-lock.json`. The bootstrap uses the lock-installed binary and
+does not substitute a global CLI. Supabase CLI, its platform binary,
+`node_modules`, Docker images and local `.local` TLS/signing material must not
+be included in WPF release artifacts.
 
 ### NSIS
 

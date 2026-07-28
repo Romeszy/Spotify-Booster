@@ -91,11 +91,11 @@ Le premier choix d’Expert brut ouvre un overlay modal :
 - focus clavier cyclé dans le dialogue ;
 - Annuler ne change pas le mode ;
 - Confirmer persiste l’acquittement ;
-- plafond réglable de `+25 à +1000 dB`, avec `+1000 dB` par défaut ;
-- explication qu’une amplitude brute à `+1000 dB` dépasse float32, que le DSP borne ses magnitudes internes, que le réglage ne décrit pas directement le volume perçu, qu’aucune puissance physique supplémentaire n’en résulte et que la sortie peut dépasser le plafond du limiteur ;
+- plafond fixe `+75 dB`, avec pas `0,5 dB` ;
+- explication que `+75 dB` vaut environ `×5623,413`, peut saturer immédiatement, n’est pas sûr pour l’audition et peut dépasser le plafond du limiteur ;
 - le mode désactive les protections dynamiques sans correction cachée.
 
-Ne contournez pas cet acquittement par une transition implicite. L’avertissement contextuel reste visible en Expert brut et se renforce à partir de `+100 dB`, lorsque le résultat devient essentiellement saturé ou limité.
+Ne contournez pas cet acquittement par une transition implicite. L’avertissement contextuel reste visible en Expert brut. La stabilité numérique ne constitue jamais une garantie acoustique.
 
 ## Tray
 
