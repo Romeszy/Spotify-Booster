@@ -27,6 +27,7 @@ public sealed class JsonSettingsService : ISettingsService
     private readonly ILogger<JsonSettingsService> logger;
     private readonly IErrorSink errorSink;
     private readonly string storageDirectory;
+    private readonly Func<string, CancellationToken, Task>? beforeTemporaryValidation;
 
     public JsonSettingsService(
         ILogger<JsonSettingsService> logger,
@@ -51,9 +52,19 @@ public sealed class JsonSettingsService : ISettingsService
         ILogger<JsonSettingsService> logger,
         IErrorSink errorSink,
         string? testStorageDirectory)
+        : this(logger, errorSink, testStorageDirectory, null)
+    {
+    }
+
+    internal JsonSettingsService(
+        ILogger<JsonSettingsService> logger,
+        IErrorSink errorSink,
+        string? testStorageDirectory,
+        Func<string, CancellationToken, Task>? beforeTemporaryValidation)
     {
         this.logger = logger;
         this.errorSink = errorSink;
+        this.beforeTemporaryValidation = beforeTemporaryValidation;
 
         storageDirectory = Path.GetFullPath(
             testStorageDirectory
@@ -209,8 +220,15 @@ public sealed class JsonSettingsService : ISettingsService
                 stream.Flush(flushToDisk: true);
             }
 
+            if (beforeTemporaryValidation is not null)
+            {
+                await beforeTemporaryValidation(
+                    temporaryPath,
+                    cancellationToken);
+            }
+
+            await ReadStrictV3Async(temporaryPath, cancellationToken);
             File.Move(temporaryPath, SettingsFilePath, overwrite: true);
-            await ReadStrictV3Async(cancellationToken);
             logger.LogDebug("Configuration locale sauvegardée.");
         }
         catch
@@ -339,10 +357,11 @@ public sealed class JsonSettingsService : ISettingsService
         }
     }
 
-    private async Task<AppSettings> ReadStrictV3Async(
+    private static async Task<AppSettings> ReadStrictV3Async(
+        string path,
         CancellationToken cancellationToken)
     {
-        await using FileStream stream = OpenRead(SettingsFilePath);
+        await using FileStream stream = OpenRead(path);
         using JsonDocument document = await JsonDocument.ParseAsync(
             stream,
             new JsonDocumentOptions

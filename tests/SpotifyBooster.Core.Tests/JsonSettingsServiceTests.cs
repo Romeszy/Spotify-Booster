@@ -356,6 +356,45 @@ public sealed class JsonSettingsServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task StrictTemporaryReloadFailurePreservesExistingSettingsByteForByte()
+    {
+        var service = CreateService();
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        AppSettings originalSettings = new()
+        {
+            FirstRunCompleted = true,
+            SourceDeviceId = "original-device",
+            Processing = DirectProcessing(0),
+            Profiles = [],
+        };
+        await service.SaveAsync(originalSettings, cancellationToken);
+        byte[] originalBytes = await File.ReadAllBytesAsync(
+            service.SettingsFilePath,
+            cancellationToken);
+        var faultedService = new JsonSettingsService(
+            NullLogger<JsonSettingsService>.Instance,
+            errorSink,
+            temporaryDirectory,
+            static (temporaryPath, token) =>
+                File.WriteAllTextAsync(temporaryPath, "{", token));
+
+        await Assert.ThrowsAnyAsync<JsonException>(
+            () => faultedService.SaveAsync(
+                originalSettings with
+                {
+                    SourceDeviceId = "must-not-replace-original",
+                },
+                cancellationToken));
+
+        Assert.Equal(
+            originalBytes,
+            await File.ReadAllBytesAsync(
+                service.SettingsFilePath,
+                cancellationToken));
+        Assert.False(File.Exists(service.SettingsFilePath + ".tmp"));
+    }
+
+    [Fact]
     public async Task InvalidJson_ReturnsSafeV2DefaultsAndReportsError()
     {
         Directory.CreateDirectory(temporaryDirectory);
