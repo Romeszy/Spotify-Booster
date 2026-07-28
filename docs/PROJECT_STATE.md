@@ -15,19 +15,21 @@ n’est livré.
 | --- | --- | --- |
 | Desktop/Audio | énumération, route, moteur, métriques, récupération | Audio `27` tests |
 | DSP | pipeline modulaire, stabilité numérique, `+75 dB` | DSP `90` tests |
-| Core/Infrastructure | validation V3, migration V1/V2, persistance | Core `88` tests |
-| API | JWT/JWKS borné à 32 clés, `/health/*`, `/v1/me`, rate limiting, métriques | API `76` tests |
+| Core/Infrastructure | validation V3, migration V1/V2, persistance | Core `90` tests |
+| API | JWT/JWKS borné à 32 clés, `/health/*`, `/v1/me`, rate limiting, métriques | API `92/92` tests |
 | Auth | contrats, appels Supabase, refresh/logout, redaction | Auth `45` tests |
-| Tooling Node | bootstrap/assets locaux, ACL après remplacement | Node `12` tests, lint réussi, audit `0` |
-| PostgreSQL/RLS | schéma, grants, policies, triggers, RPC health/me | pgTAP `110/110`, E2E RPC TLS A/B réussi |
+| Tooling Node | bootstrap/assets locaux, gate E2E et atomicité | Node `18/18`, lint réussi, audit `0` |
+| PostgreSQL/RLS | schéma, grants, policies, triggers, RPC health/me | pgTAP `110/110`, atomicité et E2E Auth/API TLS réussis |
 
 La restauration verrouillée et le build Release des 13 projets réussissent
-avec `0` avertissement et `0` erreur. Le test complet de la solution réussit
-`326/326` lors du gate d’intégration actuel. Pour la voie API/backend actuelle,
-la CLI Supabase exacte `2.109.1`, le démarrage, le reset depuis zéro, le lint
-PostgreSQL, pgTAP `110/110`, l’E2E TLS réel à deux utilisateurs et la lecture
-JWKS avec `curl --cacert` ont réussi sous WSL avec CA explicite. La stack a
-ensuite été arrêtée.
+avec `0` avertissement et `0` erreur. Le test complet réussit `344/344`
+(Audio `27`, Core `90`, DSP `90`, Auth `45`, API `92`). Pour la voie
+API/backend actuelle, la CLI Supabase exacte `2.109.1`,
+Node contrôlé avant `npm ci --offline`, le démarrage, deux resets depuis zéro,
+le lint PostgreSQL, pgTAP `110/110`, l’atomicité du runner, l’E2E Auth/API réel
+à deux utilisateurs, la panne/récupération readiness et la lecture JWKS avec
+`curl --cacert` ont réussi sous WSL avec CA explicite. Stack, API, SDK Linux
+temporaire, utilisateurs et logs temporaires ont ensuite été supprimés.
 
 Les audits NuGet et npm ne détectent aucune vulnérabilité. L’audit NuGet des
 packages dépréciés remonte toutefois des transitifs `5.0.0` hérités de
@@ -65,8 +67,8 @@ projet, `System.Diagnostics.DiagnosticSource`). Cet avertissement amont reste
 - les contrats entitlement/update n’ont pas de service desktop concret ;
 - le rôle writer d’entitlements est `NOLOGIN`, sans endpoint ;
 - la RPC health teste seulement un chemin Data API constant ;
-- l’E2E backend prouve le RPC Data API réel ; le test hosted de l’API reste un
-  test contractuel à transport contrôlé, pas une preuve d’hébergement externe.
+- l’E2E backend prouve le vrai processus API local, Auth, JWKS, Data API et
+  RLS ; ce n’est pas une preuve d’hébergement externe ou de production.
 
 ## Non implémenté
 
@@ -87,7 +89,6 @@ projet, `System.Diagnostics.DiagnosticSource`). Cet avertissement amont reste
 - endurance audio et débranchement/reconnexion ;
 - machine propre, installation/désinstallation ;
 - DPI 125/150 %, clavier et Narrateur ;
-- E2E Auth complet de rotation refresh/logout et scans de release.
 
 ## Risques
 
@@ -104,6 +105,5 @@ projet, `System.Diagnostics.DiagnosticSource`). Cet avertissement amont reste
 
 ## Prochaine étape
 
-Compléter l’E2E Auth de rotation refresh/logout, puis exécuter la checklist
-manuelle Phase A. La Phase B commencera par une ADR
+Exécuter la checklist manuelle Phase A. La Phase B commencera par une ADR
 Stripe et le writer privilégié ; elle ne doit pas être amorcée dans ce gate.

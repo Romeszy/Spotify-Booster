@@ -93,8 +93,24 @@ Un dépassement retourne `429` avec `Retry-After` et Problem Details expurgé.
 Le RPC aval `spotify_booster_me_v1()` n’accepte aucun `user_id` client. Il
 résout le sujet par `auth.uid()` sous le rôle `authenticated`, avec
 `SECURITY INVOKER` et RLS forcée. Le test hosted API valide le pipeline HTTP et
-JWT avec un transport aval contrôlé ; `npm run test:e2e:me` est la preuve
-distincte, sans mock, du RPC Data API TLS et de l’isolation entre deux bearers.
+JWT avec un transport aval contrôlé. Le gate WSL
+`backend/scripts/run-local-auth-api-gate.sh` démarre en plus le vrai processus
+ASP.NET Core avec un runtime Linux `8.0.423` temporaire, une CA fournie
+uniquement par `SSL_CERT_FILE`, puis traverse `/v1/me`, JWKS, Data API et RLS
+sans mock ni callback TLS permissif.
+
+L’E2E crée deux utilisateurs jetables et contrôle les deux headers
+request-scoped du client Data API, le profil expurgé, l’entitlement Free et
+l’absence d’IDOR. Il prouve également le minimum serveur 9/10 caractères,
+logout `scope=local`, refresh refusé après logout et validité résiduelle du JWT
+d’accès déjà émis jusqu’à `exp`.
+
+Supabase Auth `2.109.1` autorise volontairement la réutilisation du parent
+direct d’un refresh actif pour récupérer une réponse perdue. Le rejeu compromis
+est donc prouvé par `R0 -> R1 -> R2`, puis réutilisation de `R0` devenu
+grand-parent : `R0` est refusé et la famille entière est révoquée ; `R1` et
+`R2` ne maintiennent aucune session. Ce détail de version n’est pas assimilé à
+une permission générale de réutiliser les refresh tokens.
 
 ## Différé
 

@@ -24,7 +24,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/bootstrap-supa
 npm run db:reset
 npm run db:lint
 npm run test:db
-npm run test:e2e:me
+npm run test:db:atomicity
+npm run gate:local:auth-api
 ```
 
 The script always uses the lock-installed Supabase CLI `2.109.1`; a global CLI
@@ -87,6 +88,7 @@ The feature allowlist uses the shared contract identifiers:
 
 `npm audit --package-lock-only --audit-level=high` and static checks can run
 without the stack. Reset, lint, pgTAP, real RPC, two-user IDOR, Auth password
-length, refresh rotation, and TLS/JWKS behavior are runtime evidence and must
+length, refresh rotation, migration atomicity, real ASP.NET `/v1/me`,
+outage/recovery readiness, and TLS/JWKS behavior are runtime evidence and must
 not be reported as passing unless Docker and the explicitly trusted strict TLS
 origin were actually exercised.

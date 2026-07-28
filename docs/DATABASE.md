@@ -94,26 +94,27 @@ puis a exécuté sous WSL :
 
 ```bash
 # Dans le répertoire backend monté par WSL
-npm ci
-export SSL_CERT_FILE="$PWD/supabase/.local/tls/supabase-local.crt"
-npm run supabase:version
-npm exec --offline -- supabase start --workdir .
-npm run db:reset
-npm run db:lint
-npm run test:db
-npm run test:e2e:me
-npm exec --offline -- supabase stop --workdir .
+npm run gate:local:auth-api
 ```
 
-La CLI a annoncé exactement `2.109.1`. Le démarrage, le reset, le lint,
-`110/110` assertions pgTAP et l’E2E TLS du RPC `/v1/me` avec deux utilisateurs
-ont réussi. La stack a ensuite été arrêtée.
+La CLI a annoncé exactement `2.109.1`. Le démarrage, les resets, le lint,
+`110/110` assertions pgTAP, l’atomicité du runner et l’E2E TLS du vrai
+`/v1/me` ASP.NET avec deux utilisateurs ont réussi. La stack a ensuite été
+arrêtée.
 
 `SSL_CERT_FILE` désigne la CA locale explicite : cette voie valide la chaîne et
 le nom TLS, sans HTTP ni acceptation permissive. Le dialogue Windows d’ajout du
 certificat à `CurrentUser\Root` est resté bloqué dans l’environnement du gate ;
 aucun certificat n’a été ajouté au magasin Windows. Le JWKS a été vérifié
 séparément avec `curl --cacert`.
+
+`test:db:atomicity` ajoute uniquement pendant le test une migration versionnée
+jetable qui crée une table puis appelle une fonction inexistante. Avec la CLI
+exacte `2.109.1`, le runner doit échouer et les deux requêtes de preuve doivent
+retourner faux : ni `to_regclass(...)`, ni la version dans
+`supabase_migrations.schema_migrations` ne subsistent. Le fichier, l’objet
+défensif et toute version résiduelle sont supprimés par trap, puis un reset
+propre est rejoué avant l’E2E.
 
 En échec :
 

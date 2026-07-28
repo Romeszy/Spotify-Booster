@@ -6,19 +6,22 @@ Cette checklist décrit le gate d’intégration Phase A. Elle n’autorise pas 
 release commerciale. Authenticode, .NET 10, Stripe, updater, production et
 validation utilisateur complète sont différés.
 
-Le gate du 28 juillet 2026 a réussi la restauration verrouillée, le build
-Release des 13 projets (`0` avertissement, `0` erreur), les tests .NET
-`326/326`, les tests Node `12/12`, le lint Node, les audits de vulnérabilités
-NuGet/npm à `0`, ainsi que Supabase `2.109.1`, reset, lint, pgTAP `110/110`,
-E2E RPC TLS A/B et JWKS avec CA explicite. La stack locale a été arrêtée.
+Le gate backend du 28 juillet 2026 a réussi les tests Node `18/18`, le lint,
+Supabase `2.109.1`, reset, lint PostgreSQL, pgTAP `110/110`, atomicité des
+migrations, E2E Auth/API TLS à deux utilisateurs, panne/récupération readiness
+et scan de secrets. L’API ciblée réussit `92/92`. Le total global .NET réussit
+`344/344`, avec build Release `0` avertissement/`0` erreur, format et diff
+propres. L’audit NuGet remonte `0` vulnérabilité ; les transitifs de tests
+dépréciés `5.0.0` via xUnit restent documentés. La stack locale a été arrêtée.
 
 ## Source et dépendances
 
 - [ ] worktree propre et commit identifié ;
 - [ ] restauration NuGet verrouillée ;
-- [ ] `npm ci` depuis `backend` avec Node `>=20` ;
-- [ ] Supabase CLI locale exactement `2.109.1` ;
-- [ ] aucune CLI globale substituée ;
+- [x] Node majeur `>=20` vérifié avant npm ;
+- [x] `npm ci --offline` depuis copies exactes de `package.json` et lock ;
+- [x] Supabase CLI locale exactement `2.109.1` ;
+- [x] aucune CLI globale substituée ;
 - [ ] audits NuGet et npm sans vulnérabilité bloquante ;
 - [ ] scan de secrets, clés privées, tokens et callbacks TLS permissifs ;
 - [ ] `node_modules` et `.local` absents des artefacts.
@@ -48,29 +51,23 @@ depuis `backend` sous WSL :
 
 ```bash
 export SSL_CERT_FILE="$PWD/supabase/.local/tls/supabase-local.crt"
-npm exec --offline -- supabase start --workdir .
-npm run db:reset
-npm run db:lint
-npm run test:db
-npm run test:e2e:me
-curl --fail --silent --show-error \
-  --cacert "$SSL_CERT_FILE" \
-  https://127.0.0.1:54321/auth/v1/.well-known/jwks.json
-npm exec --offline -- supabase stop --workdir .
+npm run gate:local:auth-api
 ```
 
-- [ ] origine exacte `https://127.0.0.1:54321` ;
-- [ ] aucune preuve obtenue par HTTP ou acceptation TLS permissive ;
-- [ ] CA locale fournie explicitement par `SSL_CERT_FILE` ou `--cacert` ;
-- [ ] reset depuis zéro ;
-- [ ] lint sans erreur bloquante ;
-- [ ] pgTAP complet ;
-- [ ] RPC health exacte avec seule clé publiable ;
-- [ ] tests Auth 9/10 caractères ;
-- [ ] tests deux utilisateurs et absence d’IDOR ;
-- [ ] rotation refresh et logout ;
-- [ ] panne/récupération readiness ;
-- [ ] logs/TRX sans secret.
+- [x] origine exacte `https://127.0.0.1:54321` ;
+- [x] aucune preuve obtenue par HTTP ou acceptation TLS permissive ;
+- [x] CA locale fournie explicitement par `SSL_CERT_FILE` ou `--cacert` ;
+- [x] reset depuis zéro ;
+- [x] lint sans erreur bloquante ;
+- [x] pgTAP `110/110` ;
+- [x] migration en échec atomique : objet et version absents ;
+- [x] RPC health exacte avec seule clé publiable ;
+- [x] vrai processus API Linux temporaire, sans SDK committé ;
+- [x] tests Auth 9/10 caractères ;
+- [x] tests deux utilisateurs et absence d’IDOR ;
+- [x] rotation/rejeu famille refresh selon Auth `2.109.1` et logout ;
+- [x] panne/récupération readiness `200 -> 503 -> 200` ;
+- [x] logs sans token, mot de passe, e-mail jetable ou bearer.
 
 Le dialogue Windows d’ajout à `CurrentUser\Root` est un blocage connu dans
 l’environnement du gate. Il n’a pas été contourné et aucun certificat n’a été

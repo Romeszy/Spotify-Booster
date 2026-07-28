@@ -47,7 +47,8 @@ La suite `backend/supabase/tests/001_schema_and_rls.test.sql` couvre notamment :
 - absence des tables différées.
 
 La voie base a obtenu `110/110` assertions pgTAP depuis un reset propre. Le
-test backend réel `npm run test:e2e:me` crée deux utilisateurs locaux, appelle
+test backend réel `npm run test:e2e:auth-api` crée deux utilisateurs locaux,
+traverse le vrai endpoint ASP.NET `/v1/me`, appelle
 le RPC en TLS avec leurs bearers distincts, vérifie l’isolation A/B, puis
 supprime les fixtures.
 

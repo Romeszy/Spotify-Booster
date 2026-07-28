@@ -32,11 +32,11 @@ implémentés.
 
 | Menace | Contrôle Phase A | Risque restant |
 | --- | --- | --- |
-| IDOR entre A et B | bearer par requête, subject comparé, RLS owner-only, E2E RPC TLS A/B réussi lors du gate actuel | preuve à rejouer après toute modification des policies ou RPC |
+| IDOR entre A et B | bearer par requête, subject comparé, RLS owner-only, vrai `/v1/me` ASP.NET et lectures Data API A/B sous TLS | preuve à rejouer après toute modification API, policy ou RPC |
 | JWT forgé | `RS256`/`ES256`, issuer/audience/temps/sub validés | custody production différée |
 | tempête de `kid` | cache 10 min, single-flight, cooldown 60 s | cooldown par processus |
 | complétion JWKS tardive | epoch/generation et résultat stale ignoré | supervision production absente |
-| fuite de bearer | pas de default headers, réponses/logs expurgés | scan final requis |
+| fuite de bearer | pas de default headers, réponses/logs expurgés, scan dynamique des valeurs exactes et JWT | scan à rejouer à chaque gate |
 | privilège Data API excessif | grants minimaux et RLS forcée | audit staging/production différé |
 | secret dans Git | exemples factices, `.local` ignoré, scan requis | erreur humaine |
 | abus du mode `+75 dB` | acquittement, panique, lissage, modes explicites | aucune sécurité auditive garantie |

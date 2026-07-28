@@ -37,21 +37,26 @@ Authenticode, environnement de production ou release commerciale.
 
 La restauration verrouillée et le build Release des 13 projets réussissent
 avec `0` avertissement et `0` erreur. Le test complet de la solution réussit
-`326/326` :
+`344/344` :
 
-- desktop : Audio `27`, DSP `90` et Core `88` tests ;
-- fondation réseau : API `76` et Auth `45` tests ;
-- tooling backend : Node `12` tests, lint réussi et audit npm à
+- desktop : Audio `27`, DSP `90` et Core `90` tests ;
+- fondation réseau : API `92/92` et Auth `45` tests ;
+- tooling backend : Node `18/18` tests, lint réussi et audit npm à
   `0` vulnérabilité.
 
 La voie Supabase locale a également réussi le démarrage, le reset, le lint,
-`110/110` assertions pgTAP et l’E2E TLS du RPC `/v1/me` avec deux utilisateurs.
-Le JWKS a été lu avec `curl --cacert`. Ces preuves ont été obtenues sous WSL
-avec la CA locale fournie explicitement, puis la stack a été arrêtée.
+`110/110` assertions pgTAP, la preuve d’atomicité du runner et l’E2E Auth/API
+TLS complet. Le gate démarre le vrai processus ASP.NET, traverse `/v1/me` avec
+deux utilisateurs, rotation/rejeu refresh, logout, panne puis récupération
+readiness. Le JWKS a été lu avec `curl --cacert`. Ces preuves ont été obtenues
+sous WSL avec CA explicite, puis stack, API et données jetables ont été
+supprimées.
 
 L’audit NuGet ne trouve aucune vulnérabilité. L’audit des packages dépréciés
-signale cependant des transitifs `5.0.0` hérités de `xunit.v3` `3.2.2` dans
-les projets de tests ; cet avertissement amont est détaillé dans
+signale cependant `Microsoft.NETCore.Platforms` et
+`System.Security.AccessControl` `5.0.0`, ainsi que
+`System.Diagnostics.DiagnosticSource` `5.0.0` sur les tests DSP/Auth/API, tous
+transitifs via la chaîne xUnit. Cet avertissement amont est détaillé dans
 [Sécurité](docs/SECURITY.md).
 
 ## Fonctionnalités desktop
@@ -119,21 +124,9 @@ client TLS :
 
 ```bash
 # Dans le répertoire backend monté par WSL
-npm ci
-export SSL_CERT_FILE="$PWD/supabase/.local/tls/supabase-local.crt"
-npm run supabase:version
 npm test
 npm run lint
-npm audit --package-lock-only --audit-level=high
-npm exec --offline -- supabase start --workdir .
-npm run db:reset
-npm run db:lint
-npm run test:db
-npm run test:e2e:me
-curl --fail --silent --show-error \
-  --cacert "$SSL_CERT_FILE" \
-  https://127.0.0.1:54321/auth/v1/.well-known/jwks.json
-npm exec --offline -- supabase stop --workdir .
+npm run gate:local:auth-api
 ```
 
 L’origine conforme est `https://127.0.0.1:54321`. Dans l’environnement du gate,
