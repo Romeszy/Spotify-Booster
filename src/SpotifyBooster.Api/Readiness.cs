@@ -75,6 +75,7 @@ public sealed class DataApiReadinessProbe
             using var request = new HttpRequestMessage(HttpMethod.Get,
                 new Uri(_options.Origin, "/rest/v1/rpc/spotify_booster_health_v1"));
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            request.Headers.ConnectionClose = true;
             request.Headers.TryAddWithoutValidation("apikey", _options.PublishableKey);
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(2), _time);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);

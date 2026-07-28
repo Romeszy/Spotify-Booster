@@ -600,6 +600,32 @@ public sealed class ApiSecurityTests : IDisposable
     }
 
     [Fact]
+    public async Task ReadinessProbeUsesFreshConnectionAndRecoversAfterTransportReplacement()
+    {
+        var transportGeneration = 0;
+        var connectionClose = new List<bool?>();
+        using var client = new HttpClient(new Handler((request, _) =>
+        {
+            connectionClose.Add(request.Headers.ConnectionClose);
+            return transportGeneration == 0
+                ? Task.FromException<HttpResponseMessage>(
+                    new HttpRequestException("Retired transport is unavailable."))
+                : Task.FromResult(Json(HttpStatusCode.OK,
+                    """{"service":"spotify-booster-data","status":"ok","version":1}"""));
+        }));
+        var state = new ReadinessState(_time, _metrics);
+        var probe = new DataApiReadinessProbe(client, Options(), state, _time);
+
+        Assert.False(await probe.ProbeAsync(TestContext.Current.CancellationToken));
+        Assert.False(state.IsDataApiReady);
+
+        transportGeneration = 1;
+        Assert.True(await probe.ProbeAsync(TestContext.Current.CancellationToken));
+        Assert.True(state.IsDataApiReady);
+        Assert.Equal([true, true], connectionClose);
+    }
+
+    [Fact]
     public async Task ReadinessRejectsAdditionalProperties()
     {
         using var client = new HttpClient(new Handler((_, _) => Task.FromResult(Json(HttpStatusCode.OK,
