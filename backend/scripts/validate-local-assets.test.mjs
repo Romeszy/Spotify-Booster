@@ -43,6 +43,13 @@ test('JWKS must match kid and public P-256 coordinates without d', () => {
 });
 
 
+test('atomic writer flushes the staged file before close and same-directory rename', () => {
+  const source=readFileSync(fileURLToPath(new URL('./validate-local-assets.mjs', import.meta.url)),'utf8');
+  const write=source.indexOf('writeFileSync(fd'); const flush=source.indexOf('fsyncSync(fd)',write); const close=source.indexOf('closeSync(fd)',flush); const rename=source.indexOf('renameSync(temp, path)',close);
+  assert.ok(write>=0 && write<flush && flush<close && close<rename);
+  assert.match(source,/const temp = `\$\{path\}\.tmp-/);
+});
+
 test('bootstrap generates only through configured private staging without stdout capture', () => {
   const source=readFileSync(fileURLToPath(new URL('./bootstrap-supabase-local.ps1', import.meta.url)),'utf8');
   for (const forbidden of [['signing','capture'].join('-'), ['normalize','cli','jwk'].join('-'), ['StandardOutput','ReadToEnd'].join('.'), String.fromCharCode(36)+'stdout']) assert.ok(!source.toLowerCase().includes(forbidden.toLowerCase()), `forbidden bootstrap pattern: ${forbidden}`);

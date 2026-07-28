@@ -1,4 +1,4 @@
-import { chmodSync, closeSync, constants, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, constants, fsyncSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { createPrivateKey, createPublicKey, sign, verify, X509Certificate } from 'node:crypto';
 
@@ -73,6 +73,7 @@ function writeAtomic(path, value) {
   try {
     fd = openSync(temp, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
     writeFileSync(fd, JSON.stringify(value), { encoding: 'utf8' });
+    fsyncSync(fd);
     closeSync(fd); fd = undefined;
     enforceMode(temp, 0o600);
     renameSync(temp, path);
