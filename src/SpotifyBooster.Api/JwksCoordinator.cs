@@ -101,6 +101,43 @@ public sealed class JwksCoordinator : IDisposable
         }
     }
 
+    public async Task EnsureFreshAsync(CancellationToken cancellationToken = default)
+    {
+        Attempt? attempt;
+        lock (_sync)
+        {
+            ThrowIfDisposed();
+            var now = _time.GetTimestamp();
+            ExpireSnapshotLocked(now);
+            if (IsFreshLocked(now))
+                return;
+            if (_generation == 1 && !_attemptedGeneration)
+                return;
+
+            if (_inFlight is not null)
+            {
+                Decision("joined_inflight");
+                attempt = _inFlight;
+            }
+            else
+            {
+                var mandatory = !_attemptedGeneration;
+                if (!mandatory && now < _retryNotBefore)
+                {
+                    Decision("retry_gate_rejected");
+                    return;
+                }
+
+                var trigger = mandatory
+                    ? (_generation == 1 ? JwksTrigger.ColdStart : JwksTrigger.Expiry)
+                    : JwksTrigger.Retry;
+                attempt = CreateAttemptLocked(trigger, now);
+            }
+        }
+
+        await attempt.Completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<JwkKey?> FindAsync(string kid, CancellationToken cancellationToken)
     {
         Attempt attempt;

@@ -27,6 +27,7 @@ builder.Services.AddSingleton(provider => new JwksCoordinator(
     provider.GetRequiredService<SupabaseApiOptions>(),
     provider.GetRequiredService<TimeProvider>(),
     provider.GetRequiredService<ApiMetrics>()));
+builder.Services.AddHostedService<JwksRefreshHostedService>();
 builder.Services.AddSingleton<SupabaseJwtValidator>();
 builder.Services.AddHttpClient<DataApiClient>(client => client.BaseAddress = options.Origin)
     .ConfigurePrimaryHttpMessageHandler(CreateStrictHandler);

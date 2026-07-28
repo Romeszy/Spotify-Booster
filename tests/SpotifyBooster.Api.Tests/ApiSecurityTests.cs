@@ -229,6 +229,81 @@ public sealed class ApiSecurityTests : IDisposable
     }
 
     [Fact]
+    public async Task BackgroundRefreshRecoversExpiredSnapshotWithoutAuthenticatedRequest()
+    {
+        var calls = 0;
+        using var coordinator = Coordinator((_, _) =>
+        {
+            var call = Interlocked.Increment(ref calls);
+            return Task.FromResult(call switch
+            {
+                1 => Json(HttpStatusCode.OK, RsaJwks("old")),
+                2 => Json(HttpStatusCode.ServiceUnavailable, "{}"),
+                _ => Json(HttpStatusCode.OK, RsaJwks("new"))
+            });
+        });
+        using var service = new JwksRefreshHostedService(coordinator, _time);
+        using var old = await coordinator.FindAsync("old", TestContext.Current.CancellationToken);
+        Assert.NotNull(old);
+        await service.StartAsync(TestContext.Current.CancellationToken);
+        await WaitForAsync(() => Volatile.Read(ref calls) == 1 && coordinator.IsReady);
+
+        _time.AdvanceWithoutFiringTimers(TimeSpan.FromMinutes(10));
+        Assert.False(coordinator.IsReady);
+        Assert.Equal(1, Volatile.Read(ref calls));
+
+        _time.Advance(TimeSpan.Zero);
+        await WaitForAsync(() => Volatile.Read(ref calls) == 2);
+        Assert.False(coordinator.IsReady);
+
+        for (var second = 0; second < 59; second++)
+            _time.Advance(TimeSpan.FromSeconds(1));
+        await Task.Yield();
+        Assert.Equal(2, Volatile.Read(ref calls));
+        Assert.False(coordinator.IsReady);
+
+        _time.Advance(TimeSpan.FromSeconds(1));
+        await WaitForAsync(() => Volatile.Read(ref calls) == 3 && coordinator.IsReady);
+        Assert.True(coordinator.IsReady);
+        Assert.Equal(3, Volatile.Read(ref calls));
+
+        await service.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task ConcurrentBackgroundRefreshTicksRespectSingleFlightAndRetryGate()
+    {
+        var calls = 0;
+        var retry = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var coordinator = Coordinator((_, _) =>
+        {
+            var call = Interlocked.Increment(ref calls);
+            if (call == 1)
+                return Task.FromResult(Json(HttpStatusCode.ServiceUnavailable, "{}"));
+            return retry.Task;
+        });
+
+        Assert.Null(await coordinator.FindAsync("missing",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1, Volatile.Read(ref calls));
+
+        _time.Advance(TimeSpan.FromSeconds(59.999));
+        await Task.WhenAll(Enumerable.Range(0, 100).Select(_ =>
+            coordinator.EnsureFreshAsync(TestContext.Current.CancellationToken)));
+        Assert.Equal(1, Volatile.Read(ref calls));
+
+        _time.Advance(TimeSpan.FromMilliseconds(1));
+        var ticks = Enumerable.Range(0, 100).Select(_ =>
+            coordinator.EnsureFreshAsync(TestContext.Current.CancellationToken)).ToArray();
+        await WaitForAsync(() => Volatile.Read(ref calls) == 2);
+        Assert.Equal(2, Volatile.Read(ref calls));
+        retry.SetResult(Json(HttpStatusCode.OK, RsaJwks("recovered")));
+        await Task.WhenAll(ticks);
+        Assert.True(coordinator.IsReady);
+    }
+
+    [Fact]
     public async Task RetryGateIsClosedUntilExactSixtySecondBoundary()
     {
         var calls = 0;
@@ -1728,6 +1803,13 @@ public sealed class ApiSecurityTests : IDisposable
     {
         var client = new HttpClient(new Handler(send));
         return new(client, Options(), _time, _metrics);
+    }
+
+    private static async Task WaitForAsync(Func<bool> condition)
+    {
+        for (var attempt = 0; attempt < 100 && !condition(); attempt++)
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        Assert.True(condition());
     }
     private static SupabaseApiOptions Options() => new()
     {
