@@ -282,11 +282,8 @@ public static class SettingsValidator
             errors);
         if (processing.Mode == AudioProtectionMode.RawExpert
             && double.IsFinite(processing.MainGainDb)
-            && Math.Abs(
-                (processing.MainGainDb / AudioProcessingSettings.RawExpertGainStepDb)
-                - Math.Round(
-                    processing.MainGainDb / AudioProcessingSettings.RawExpertGainStepDb))
-                > 1e-9)
+            && processing.MainGainDb * 2d
+                != Math.Truncate(processing.MainGainDb * 2d))
         {
             errors.Add($"{prefix}.MainGainDb doit être aligné sur la grille de 0,5 dB.");
         }

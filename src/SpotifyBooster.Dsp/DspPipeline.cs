@@ -174,9 +174,18 @@ public sealed class DspPipeline
             if (Settings.DcBlockEnabled)
             {
                 dcBlocker.Process(ref left, ref right);
-                if (SanitizePair(ref left, ref right, ref sanitizedSamples))
+                int contaminatedChannels = SanitizeChannels(
+                    ref left,
+                    ref right,
+                    ref sanitizedSamples);
+                if ((contaminatedChannels & 1) != 0)
                 {
-                    dcBlocker.Reset();
+                    dcBlocker.ResetLeft();
+                }
+
+                if ((contaminatedChannels & 2) != 0)
+                {
+                    dcBlocker.ResetRight();
                 }
             }
 
@@ -189,9 +198,18 @@ public sealed class DspPipeline
             if (Settings.BassBoostEnabled)
             {
                 lowShelf.Process(ref left, ref right);
-                if (SanitizePair(ref left, ref right, ref sanitizedSamples))
+                int contaminatedChannels = SanitizeChannels(
+                    ref left,
+                    ref right,
+                    ref sanitizedSamples);
+                if ((contaminatedChannels & 1) != 0)
                 {
-                    lowShelf.Reset();
+                    lowShelf.ResetLeft();
+                }
+
+                if ((contaminatedChannels & 2) != 0)
+                {
+                    lowShelf.ResetRight();
                 }
             }
 
@@ -200,17 +218,26 @@ public sealed class DspPipeline
             if (Settings.EqualizerEnabled)
             {
                 equalizerLow.Process(ref left, ref right);
-                bool invalid = SanitizePair(ref left, ref right, ref sanitizedSamples);
+                ResetEqualizerChannels(
+                    equalizerLow,
+                    SanitizeChannels(
+                    ref left,
+                    ref right,
+                    ref sanitizedSamples));
                 equalizerMid.Process(ref left, ref right);
-                invalid |= SanitizePair(ref left, ref right, ref sanitizedSamples);
+                ResetEqualizerChannels(
+                    equalizerMid,
+                    SanitizeChannels(
+                    ref left,
+                    ref right,
+                    ref sanitizedSamples));
                 equalizerHigh.Process(ref left, ref right);
-                invalid |= SanitizePair(ref left, ref right, ref sanitizedSamples);
-                if (invalid)
-                {
-                    equalizerLow.Reset();
-                    equalizerMid.Reset();
-                    equalizerHigh.Reset();
-                }
+                ResetEqualizerChannels(
+                    equalizerHigh,
+                    SanitizeChannels(
+                    ref left,
+                    ref right,
+                    ref sanitizedSamples));
             }
 
             afterEqualizerPeak = UpdatePeak(afterEqualizerPeak, left, right);
@@ -350,6 +377,42 @@ public sealed class DspPipeline
         left = Sanitize(left, ref count);
         right = Sanitize(right, ref count);
         return contaminated;
+    }
+
+    private static int SanitizeChannels(
+        ref float left,
+        ref float right,
+        ref int count)
+    {
+        int contaminatedChannels = 0;
+        if (!float.IsFinite(left))
+        {
+            left = Sanitize(left, ref count);
+            contaminatedChannels |= 1;
+        }
+
+        if (!float.IsFinite(right))
+        {
+            right = Sanitize(right, ref count);
+            contaminatedChannels |= 2;
+        }
+
+        return contaminatedChannels;
+    }
+
+    private static void ResetEqualizerChannels(
+        StereoBiquad equalizer,
+        int contaminatedChannels)
+    {
+        if ((contaminatedChannels & 1) != 0)
+        {
+            equalizer.ResetLeft();
+        }
+
+        if ((contaminatedChannels & 2) != 0)
+        {
+            equalizer.ResetRight();
+        }
     }
 
     private static float Sanitize(float sample, ref int count)

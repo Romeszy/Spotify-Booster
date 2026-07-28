@@ -163,17 +163,20 @@ public sealed class JsonSettingsServiceTests : IDisposable
             roundTripped.Profiles.ToArray());
     }
 
-    [Fact]
-    public async Task Schema2MigrationQuantizesOnlyRawExpertAndCreatesExactBackup()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Schema2MigrationQuantizesOnlyRawExpertAndCreatesExactBackup(
+        bool oldAcknowledgement)
     {
         Directory.CreateDirectory(temporaryDirectory);
         string settingsPath = Path.Combine(temporaryDirectory, "settings.json");
-        const string schema2 =
-            """
+        string schema2 =
+            $$"""
             {
               "SchemaVersion": 2,
               "FirstRunCompleted": true,
-              "ExpertModeAcknowledged": true,
+              "ExpertModeAcknowledged": {{oldAcknowledgement.ToString().ToLowerInvariant()}},
               "Processing": {
                 "Mode": 2,
                 "MainGainDb": 74.6,
@@ -226,6 +229,130 @@ public sealed class JsonSettingsServiceTests : IDisposable
             await File.ReadAllTextAsync(
                 Path.Combine(temporaryDirectory, "settings.schema2.backup.json"),
                 TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData("stale")]
+    [InlineData("{")]
+    public async Task Schema2MigrationRefusesMismatchedExistingBackup(
+        string existingBackup)
+    {
+        Directory.CreateDirectory(temporaryDirectory);
+        string settingsPath = Path.Combine(temporaryDirectory, "settings.json");
+        const string schema2 =
+            """{"SchemaVersion":2,"Processing":{"Mode":2,"MainGainDb":25,"ExpertMaximumGainDb":1000},"Profiles":[]}""";
+        await File.WriteAllTextAsync(
+            settingsPath,
+            schema2,
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(temporaryDirectory, "settings.schema2.backup.json"),
+            existingBackup,
+            TestContext.Current.CancellationToken);
+
+        AppSettings loaded = await CreateService().LoadAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.False(loaded.FirstRunCompleted);
+        Assert.Equal(
+            schema2,
+            await File.ReadAllTextAsync(
+                settingsPath,
+                TestContext.Current.CancellationToken));
+        Assert.NotEmpty(errorSink.GetRecent());
+    }
+
+    [Fact]
+    public async Task Schema2MigrationAcceptsExactExistingBackupForRecovery()
+    {
+        Directory.CreateDirectory(temporaryDirectory);
+        string settingsPath = Path.Combine(temporaryDirectory, "settings.json");
+        const string schema2 =
+            """{"SchemaVersion":2,"FirstRunCompleted":true,"ExpertModeAcknowledged":false,"Processing":{"Mode":2,"MainGainDb":25,"ExpertMaximumGainDb":1000},"Profiles":[]}""";
+        string backupPath = Path.Combine(
+            temporaryDirectory,
+            "settings.schema2.backup.json");
+        await File.WriteAllTextAsync(
+            settingsPath,
+            schema2,
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            backupPath,
+            schema2,
+            TestContext.Current.CancellationToken);
+
+        AppSettings loaded = await CreateService().LoadAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.True(loaded.FirstRunCompleted);
+        Assert.Equal(25, loaded.Processing.MainGainDb);
+        Assert.False(loaded.Expert75DbAcknowledged);
+        Assert.Equal(
+            schema2,
+            await File.ReadAllTextAsync(
+                backupPath,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task BackupWriteFailureLeavesSchema2SourceUntouched()
+    {
+        Directory.CreateDirectory(temporaryDirectory);
+        string settingsPath = Path.Combine(temporaryDirectory, "settings.json");
+        const string schema2 =
+            """{"SchemaVersion":2,"Processing":{"Mode":2,"MainGainDb":25,"ExpertMaximumGainDb":1000},"Profiles":[]}""";
+        await File.WriteAllTextAsync(
+            settingsPath,
+            schema2,
+            TestContext.Current.CancellationToken);
+        string backupPath = Path.Combine(
+            temporaryDirectory,
+            "settings.schema2.backup.json");
+        Directory.CreateDirectory(backupPath + ".tmp");
+
+        AppSettings loaded = await CreateService().LoadAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.False(loaded.FirstRunCompleted);
+        Assert.Equal(
+            schema2,
+            await File.ReadAllTextAsync(
+                settingsPath,
+                TestContext.Current.CancellationToken));
+        Assert.False(File.Exists(backupPath));
+        Assert.NotEmpty(errorSink.GetRecent());
+    }
+
+    [Fact]
+    public async Task SaveWriteFailureDoesNotReplaceExistingSettings()
+    {
+        var service = CreateService();
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        AppSettings originalSettings = new()
+        {
+            FirstRunCompleted = true,
+            Processing = DirectProcessing(0),
+            Profiles = [],
+        };
+        await service.SaveAsync(originalSettings, cancellationToken);
+        string original = await File.ReadAllTextAsync(
+            service.SettingsFilePath,
+            cancellationToken);
+        Directory.CreateDirectory(service.SettingsFilePath + ".tmp");
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => service.SaveAsync(
+                originalSettings with
+                {
+                    SourceDeviceId = "must-not-be-written",
+                },
+                cancellationToken));
+
+        Assert.Equal(
+            original,
+            await File.ReadAllTextAsync(
+                service.SettingsFilePath,
+                cancellationToken));
     }
 
     [Fact]

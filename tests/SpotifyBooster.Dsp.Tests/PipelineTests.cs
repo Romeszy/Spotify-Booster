@@ -189,10 +189,13 @@ public sealed class PipelineTests
         Assert.True(metrics.LimiterGainReductionDecibels > 0f);
     }
 
-    [Fact]
-    public void PanicResetUsesFastSmoothingAndReturnsMainAndOutputGainToUnity()
+    [Theory]
+    [InlineData(44_100)]
+    [InlineData(48_000)]
+    [InlineData(96_000)]
+    public void PanicResetUsesFastSmoothingAndReturnsMainAndOutputGainToUnity(
+        int sampleRate)
     {
-        const int sampleRate = 48_000;
         var pipeline = new DspPipeline(
             sampleRate,
             TransparentSettings(25f) with
@@ -215,6 +218,73 @@ public sealed class PipelineTests
         double tailRms = MeasureRms(after[^960..]);
         double expectedRms = amplitude / Math.Sqrt(2);
         Assert.InRange(tailRms, expectedRms * 0.99, expectedRms * 1.01);
+    }
+
+    [Theory]
+    [InlineData(44_100)]
+    [InlineData(48_000)]
+    [InlineData(96_000)]
+    public void PanicGainRampDescendsMonotonicallyAtSupportedRates(
+        int sampleRate)
+    {
+        const float startingGainDecibels = 75f;
+        const float panicMilliseconds = 1.5f;
+        var pipeline = new DspPipeline(
+            sampleRate,
+            TransparentSettings(startingGainDecibels) with
+            {
+                GainSmoothingMilliseconds = 0f,
+                PanicSmoothingMilliseconds = panicMilliseconds,
+            });
+        pipeline.Process([0.001f, 0.001f]);
+        pipeline.PanicReset();
+
+        float previous = startingGainDecibels;
+        int sampleCount = (int)Math.Ceiling(
+            sampleRate * panicMilliseconds / 1000f);
+        for (int sample = 0; sample < sampleCount; sample++)
+        {
+            DspMetrics metrics = pipeline.Process([0.001f, 0.001f]);
+            Assert.InRange(metrics.AppliedMainGainDecibels, 0f, previous);
+            previous = metrics.AppliedMainGainDecibels;
+        }
+
+        Assert.InRange(previous, 0f, 0.0001f);
+    }
+
+    [Theory]
+    [InlineData("dc-block")]
+    [InlineData("bass")]
+    [InlineData("equalizer")]
+    public void NonFiniteRecoveryPreservesCleanChannelState(string module)
+    {
+        DspSettings settings = TransparentSettings() with
+        {
+            DcBlockEnabled = module == "dc-block",
+            BassBoostEnabled = module == "bass",
+            LowShelfGainDecibels = 18f,
+            EqualizerEnabled = module == "equalizer",
+            EqualizerLowGainDecibels = 12f,
+            EqualizerMidGainDecibels = 12f,
+            EqualizerHighGainDecibels = 12f,
+        };
+        var contaminated = new DspPipeline(48_000, settings);
+        var reference = new DspPipeline(48_000, settings);
+        float[] contaminatedBuffer = CreateContaminationProbe();
+        float[] referenceBuffer = (float[])contaminatedBuffer.Clone();
+        for (int index = 0; index < referenceBuffer.Length; index += 2)
+        {
+            referenceBuffer[index] = 0f;
+        }
+
+        DspMetrics metrics = contaminated.Process(contaminatedBuffer);
+        reference.Process(referenceBuffer);
+
+        Assert.True(metrics.SanitizedSamples > 0);
+        for (int index = 1; index < contaminatedBuffer.Length; index += 2)
+        {
+            Assert.Equal(referenceBuffer[index], contaminatedBuffer[index]);
+        }
     }
 
     [Fact]
@@ -365,5 +435,23 @@ public sealed class PipelineTests
         }
 
         return Math.Sqrt(sum / buffer.Length);
+    }
+
+    private static float[] CreateContaminationProbe()
+    {
+        var buffer = new float[64];
+        for (int frame = 0; frame < buffer.Length / 2; frame++)
+        {
+            buffer[frame * 2] = frame switch
+            {
+                8 => float.MaxValue,
+                9 => -float.MaxValue,
+                _ => 0.1f,
+            };
+            buffer[(frame * 2) + 1] = 0.2f
+                * MathF.Sin(2f * MathF.PI * frame / 17f);
+        }
+
+        return buffer;
     }
 }

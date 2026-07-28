@@ -120,6 +120,31 @@ public sealed class SettingsValidatorTests
         Assert.True(SettingsValidator.Validate(settings).IsValid);
     }
 
+    [Theory]
+    [InlineData(0.0000000001)]
+    [InlineData(10.0000000001)]
+    [InlineData(10.4999999999)]
+    [InlineData(74.9999999999)]
+    public void RawExpertRejectsAnyOffGridValueWithoutToleranceLoophole(
+        double gain)
+    {
+        AppSettings settings = ValidCompletedSettings() with
+        {
+            Processing = DirectProcessing() with
+            {
+                Mode = AudioProtectionMode.RawExpert,
+                MainGainDb = gain,
+            },
+        };
+
+        SettingsValidationResult result = SettingsValidator.Validate(settings);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(
+            result.Errors,
+            error => error.Contains("grille de 0,5 dB", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void ProtectedModeRejectsPositivePostLimiterOutputGain()
     {

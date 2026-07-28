@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using SpotifyBooster.Core.Abstractions;
@@ -129,7 +128,12 @@ public sealed class JsonSettingsService : ISettingsService
                 }
                 else if (schemaVersion == 2)
                 {
-                    loaded = MigrateV2(document.RootElement);
+                    LegacyAppSettingsV2? legacy =
+                        document.RootElement.Deserialize<LegacyAppSettingsV2>(
+                            SerializerOptions);
+                    loaded = legacy?.Migrate()
+                        ?? throw new InvalidDataException(
+                            "La configuration V2 doit être un objet.");
                     await BackupBeforeMigrationAsync(2, cancellationToken);
                     await SaveAsync(loaded, cancellationToken);
                     logger.LogInformation(
@@ -202,9 +206,11 @@ public sealed class JsonSettingsService : ISettingsService
                     SerializerOptions,
                     cancellationToken);
                 await stream.FlushAsync(cancellationToken);
+                stream.Flush(flushToDisk: true);
             }
 
             File.Move(temporaryPath, SettingsFilePath, overwrite: true);
+            await ReadStrictV3Async(cancellationToken);
             logger.LogDebug("Configuration locale sauvegardée.");
         }
         catch
@@ -253,32 +259,6 @@ public sealed class JsonSettingsService : ISettingsService
         throw new InvalidDataException("La version de configuration est absente.");
     }
 
-    private static AppSettings MigrateV2(JsonElement root)
-    {
-        JsonObject migrated = JsonNode.Parse(root.GetRawText())?.AsObject()
-            ?? throw new InvalidDataException("La configuration V2 doit être un objet.");
-        migrated[nameof(AppSettings.SchemaVersion)] = AppSettings.CurrentSchemaVersion;
-        migrated.Remove("ExpertModeAcknowledged");
-        migrated[nameof(AppSettings.Expert75DbAcknowledged)] = false;
-
-        MigrateV2Processing(migrated[nameof(AppSettings.Processing)]);
-        if (migrated[nameof(AppSettings.Profiles)] is JsonArray profiles)
-        {
-            foreach (JsonNode? profile in profiles)
-            {
-                if (profile is not JsonObject profileObject)
-                {
-                    throw new InvalidDataException("Un profil V2 est invalide.");
-                }
-
-                MigrateV2Processing(profileObject[nameof(AudioProfileSettings.Processing)]);
-            }
-        }
-
-        return migrated.Deserialize<AppSettings>(SerializerOptions)
-            ?? throw new InvalidDataException("La migration V2 n'a produit aucun réglage.");
-    }
-
     private static bool ContainsObsoleteV3Property(JsonElement root)
     {
         if (root.TryGetProperty("ExpertModeAcknowledged", out _)
@@ -309,29 +289,6 @@ public sealed class JsonSettingsService : ISettingsService
         return false;
     }
 
-    private static void MigrateV2Processing(JsonNode? node)
-    {
-        if (node is not JsonObject processing)
-        {
-            throw new InvalidDataException("Un réglage audio V2 est invalide.");
-        }
-
-        processing.Remove("ExpertMaximumGainDb");
-        AudioProtectionMode mode = processing[nameof(AudioProcessingSettings.Mode)]
-            ?.Deserialize<AudioProtectionMode>(SerializerOptions)
-            ?? throw new InvalidDataException("Le mode audio V2 est absent.");
-        if (mode != AudioProtectionMode.RawExpert)
-        {
-            return;
-        }
-
-        double gain = processing[nameof(AudioProcessingSettings.MainGainDb)]
-            ?.GetValue<double>()
-            ?? throw new InvalidDataException("Le gain audio V2 est absent.");
-        processing[nameof(AudioProcessingSettings.MainGainDb)] =
-            AudioProcessingSettings.QuantizeRawExpertGain(gain);
-    }
-
     private async Task BackupBeforeMigrationAsync(
         int schemaVersion,
         CancellationToken cancellationToken)
@@ -341,24 +298,122 @@ public sealed class JsonSettingsService : ISettingsService
             $"settings.schema{schemaVersion}.backup.json");
         if (File.Exists(backupPath))
         {
+            await VerifyFilesEqualAsync(
+                SettingsFilePath,
+                backupPath,
+                cancellationToken);
             return;
         }
 
-        await using FileStream source = new(
-            SettingsFilePath,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            bufferSize: 16_384,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
-        await using FileStream destination = new(
-            backupPath,
-            FileMode.CreateNew,
-            FileAccess.Write,
-            FileShare.None,
-            bufferSize: 16_384,
-            FileOptions.Asynchronous | FileOptions.WriteThrough);
-        await source.CopyToAsync(destination, cancellationToken);
-        await destination.FlushAsync(cancellationToken);
+        string temporaryBackupPath = backupPath + ".tmp";
+        try
+        {
+            await using (FileStream source = OpenRead(SettingsFilePath))
+            await using (FileStream destination = new(
+                temporaryBackupPath,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 16_384,
+                FileOptions.Asynchronous | FileOptions.WriteThrough))
+            {
+                await source.CopyToAsync(destination, cancellationToken);
+                await destination.FlushAsync(cancellationToken);
+                destination.Flush(flushToDisk: true);
+            }
+
+            await VerifyFilesEqualAsync(
+                SettingsFilePath,
+                temporaryBackupPath,
+                cancellationToken);
+            File.Move(temporaryBackupPath, backupPath);
+            await VerifyFilesEqualAsync(
+                SettingsFilePath,
+                backupPath,
+                cancellationToken);
+        }
+        catch
+        {
+            TryDeleteTemporaryFile(temporaryBackupPath);
+            throw;
+        }
     }
+
+    private async Task<AppSettings> ReadStrictV3Async(
+        CancellationToken cancellationToken)
+    {
+        await using FileStream stream = OpenRead(SettingsFilePath);
+        using JsonDocument document = await JsonDocument.ParseAsync(
+            stream,
+            new JsonDocumentOptions
+            {
+                AllowTrailingCommas = false,
+                CommentHandling = JsonCommentHandling.Disallow,
+                MaxDepth = 16,
+            },
+            cancellationToken);
+        if (ReadSchemaVersion(document.RootElement)
+            != AppSettings.CurrentSchemaVersion
+            || ContainsObsoleteV3Property(document.RootElement))
+        {
+            throw new InvalidDataException(
+                "La configuration sauvegardée n'est pas un schéma V3 strict.");
+        }
+
+        AppSettings? reloaded = document.RootElement.Deserialize<AppSettings>(
+            SerializerOptions);
+        SettingsValidationResult validation = SettingsValidator.Validate(reloaded);
+        if (!validation.IsValid)
+        {
+            throw new InvalidDataException(string.Join(" ", validation.Errors));
+        }
+
+        return validation.Settings;
+    }
+
+    private static async Task VerifyFilesEqualAsync(
+        string expectedPath,
+        string actualPath,
+        CancellationToken cancellationToken)
+    {
+        await using FileStream expected = OpenRead(expectedPath);
+        await using FileStream actual = OpenRead(actualPath);
+        if (expected.Length != actual.Length)
+        {
+            throw new InvalidDataException(
+                "La sauvegarde de migration existante ne correspond pas au fichier source.");
+        }
+
+        byte[] expectedBuffer = new byte[16_384];
+        byte[] actualBuffer = new byte[16_384];
+        while (true)
+        {
+            int expectedRead = await expected.ReadAsync(
+                expectedBuffer,
+                cancellationToken);
+            int actualRead = await actual.ReadAsync(
+                actualBuffer,
+                cancellationToken);
+            if (expectedRead != actualRead
+                || !expectedBuffer.AsSpan(0, expectedRead).SequenceEqual(
+                    actualBuffer.AsSpan(0, actualRead)))
+            {
+                throw new InvalidDataException(
+                    "La sauvegarde de migration existante ne correspond pas au fichier source.");
+            }
+
+            if (expectedRead == 0)
+            {
+                return;
+            }
+        }
+    }
+
+    private static FileStream OpenRead(string path) => new(
+        path,
+        FileMode.Open,
+        FileAccess.Read,
+        FileShare.Read,
+        bufferSize: 16_384,
+        FileOptions.Asynchronous | FileOptions.SequentialScan);
 }
