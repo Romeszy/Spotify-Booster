@@ -1,27 +1,31 @@
+import { createPrivateKey, createPublicKey, sign, verify, X509Certificate } from 'node:crypto';
 import { chmodSync, closeSync, constants, existsSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
-import { createPrivateKey, createPublicKey, createPublicKey as importPublicKey, sign, verify, X509Certificate } from 'node:crypto';
 
 const P256_ORDER = BigInt('0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551');
-const exactKeys = ['alg','crv','d','ext','key_ops','kid','kty','use','x','y'].sort();
+const EXACT_KEYS = ['alg','crv','d','ext','key_ops','kid','kty','use','x','y'].sort();
 
 class ValidationError extends Error {
   constructor(category) { super(); this.category = category; }
 }
 function fail(category) { throw new ValidationError(category); }
-function under(path, parent) {
-  const p = resolve(path); const root = resolve(parent);
-  const lexical = relative(root, p);
-  if (lexical.startsWith('..' + sep) || lexical === '..' || resolve(root, lexical) !== p) fail('path_outside_local_root');
-  if (!existsSync(root) || lstatSync(root).isSymbolicLink()) fail('unsafe_local_root');
-  const rootReal = realpathSync.native(root);
-  let cursor = root;
+function assertPathUnderRoot(path, root) {
+  const resolvedPath = resolve(path);
+  const resolvedRoot = resolve(root);
+  const lexical = relative(resolvedRoot, resolvedPath);
+  if (lexical.startsWith('..' + sep) || lexical === '..' ||
+      resolve(resolvedRoot, lexical) !== resolvedPath)
+    fail('path_outside_local_root');
+  if (!existsSync(resolvedRoot) || lstatSync(resolvedRoot).isSymbolicLink())
+    fail('unsafe_local_root');
+  const rootReal = realpathSync.native(resolvedRoot);
+  let cursor = resolvedRoot;
   for (const part of lexical.split(sep).filter(Boolean)) {
     cursor = resolve(cursor, part);
     if (!existsSync(cursor)) break;
     if (lstatSync(cursor).isSymbolicLink()) fail('symlink_or_reparse_refused');
   }
-  const existing = existsSync(p) ? p : dirname(p);
+  const existing = existsSync(resolvedPath) ? resolvedPath : dirname(resolvedPath);
   const existingReal = realpathSync.native(existing);
   const canonical = relative(rootReal, existingReal);
   if (canonical.startsWith('..' + sep) || canonical === '..') fail('canonical_path_outside_local_root');
@@ -35,10 +39,9 @@ function base64url32(value, field) {
 }
 function normalizeJwk(document) {
   if (!Array.isArray(document)) fail('invalid_signing_document_shape');
-  const list = document;
-  if (list.length !== 1 || !list[0] || Array.isArray(list[0]) || typeof list[0] !== 'object') fail('invalid_signing_document_shape');
-  const jwk = { ...list[0] };
-  if (JSON.stringify(Object.keys(jwk).sort()) !== JSON.stringify(exactKeys)) fail('invalid_signing_fields');
+  if (document.length !== 1 || !document[0] || Array.isArray(document[0]) || typeof document[0] !== 'object') fail('invalid_signing_document_shape');
+  const jwk = { ...document[0] };
+  if (JSON.stringify(Object.keys(jwk).sort()) !== JSON.stringify(EXACT_KEYS)) fail('invalid_signing_fields');
   if (jwk.kty !== 'EC' || jwk.use !== 'sig' || jwk.alg !== 'ES256' || jwk.crv !== 'P-256' || jwk.ext !== true) fail('invalid_signing_algorithm');
   if (!Array.isArray(jwk.key_ops) || jwk.key_ops.length !== 2 || jwk.key_ops[0] !== 'sign' || jwk.key_ops[1] !== 'verify') fail('invalid_signing_operations');
   if (typeof jwk.kid !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jwk.kid)) fail('invalid_signing_kid');
@@ -62,7 +65,8 @@ function enforceMode(path, expected) {
   }
 }
 function validateTls(certPath, keyPath, root) {
-  under(certPath, root); under(keyPath, root);
+  assertPathUnderRoot(certPath, root);
+  assertPathUnderRoot(keyPath, root);
   const cert = new X509Certificate(readFileSync(certPath));
   const now = Date.now();
   if (now < Date.parse(cert.validFrom) || now >= Date.parse(cert.validTo)) fail('certificate_expired_or_not_yet_valid');
@@ -75,7 +79,8 @@ function validateTls(certPath, keyPath, root) {
   enforceMode(keyPath, 0o600);
 }
 function validateJwks(signingPath, jwksPath, root) {
-  under(signingPath, root); under(jwksPath, root);
+  assertPathUnderRoot(signingPath, root);
+  assertPathUnderRoot(jwksPath, root);
   const [privateJwk] = normalizeJwk(JSON.parse(readFileSync(signingPath, 'utf8')));
   const document = JSON.parse(readFileSync(jwksPath, 'utf8'));
   if (!document || !Array.isArray(document.keys) || document.keys.length < 1) fail('invalid_jwks_document');
@@ -84,7 +89,7 @@ function validateJwks(signingPath, jwksPath, root) {
   if (matches.length !== 1) fail('jwks_signing_key_mismatch');
 }
 async function validateJwtFromStdin(jwksPath, root) {
-  under(jwksPath, root);
+  assertPathUnderRoot(jwksPath, root);
   let token = '';
   for await (const chunk of process.stdin) {
     token += chunk;
@@ -103,7 +108,7 @@ async function validateJwtFromStdin(jwksPath, root) {
   const jwk = jwks.keys?.find(key => key.kid === header.kid && key.alg === 'ES256' && key.crv === 'P-256' && !('d' in key));
   if (!jwk) fail('jwt_key_not_found');
   let key;
-  try { key = importPublicKey({ key: jwk, format: 'jwk' }); } catch { fail('invalid_jwt_public_key'); }
+  try { key = createPublicKey({ key: jwk, format: 'jwk' }); } catch { fail('invalid_jwt_public_key'); }
   const signature = Buffer.from(parts[2], 'base64url');
   const valid = verify('sha256', Buffer.from(`${parts[0]}.${parts[1]}`), { key, dsaEncoding: 'ieee-p1363' }, signature);
   if (!valid) fail('invalid_jwt_signature');
@@ -131,9 +136,12 @@ try {
   else if (command === 'validate-jwks' && args.length === 3) validateJwks(args[0], args[1], args[2]);
   else if (command === 'validate-jwt-stdin' && args.length === 2) await validateJwtFromStdin(args[0], args[1]);
   else if (command === 'validate-jwk' && (args.length === 2 || args.length === 3)) {
-    under(args[0], args[1]);
+    assertPathUnderRoot(args[0], args[1]);
     const normalized = normalizeJwk(JSON.parse(readFileSync(args[0], 'utf8')));
-    if (args[2]) { under(args[2], args[1]); writeAtomic(args[2], normalized); }
+    if (args[2]) {
+      assertPathUnderRoot(args[2], args[1]);
+      writeAtomic(args[2], normalized);
+    }
     enforceMode(args[0], 0o600);
   } else fail('invalid_validator_arguments');
   process.stdout.write('local_asset_validation_ok\n');
