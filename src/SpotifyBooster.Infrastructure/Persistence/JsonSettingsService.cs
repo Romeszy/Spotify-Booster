@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using SpotifyBooster.Core.Abstractions;
@@ -119,15 +120,30 @@ public sealed class JsonSettingsService : ISettingsService
                     loaded = SettingsV1Migration.Migrate(legacy);
                     if (loaded is not null)
                     {
-                        await BackupBeforeMigrationAsync(cancellationToken);
+                        await BackupBeforeMigrationAsync(1, cancellationToken);
                         await SaveAsync(loaded, cancellationToken);
                         logger.LogInformation(
                             "Configuration migrée du schéma 1 vers le schéma {SchemaVersion}.",
                             AppSettings.CurrentSchemaVersion);
                     }
                 }
+                else if (schemaVersion == 2)
+                {
+                    loaded = MigrateV2(document.RootElement);
+                    await BackupBeforeMigrationAsync(2, cancellationToken);
+                    await SaveAsync(loaded, cancellationToken);
+                    logger.LogInformation(
+                        "Configuration migrée du schéma 2 vers le schéma {SchemaVersion}.",
+                        AppSettings.CurrentSchemaVersion);
+                }
                 else
                 {
+                    if (ContainsObsoleteV3Property(document.RootElement))
+                    {
+                        throw new InvalidDataException(
+                            "ExpertModeAcknowledged est obsolète dans le schéma V3.");
+                    }
+
                     loaded = document.RootElement.Deserialize<AppSettings>(
                         SerializerOptions);
                 }
@@ -237,11 +253,92 @@ public sealed class JsonSettingsService : ISettingsService
         throw new InvalidDataException("La version de configuration est absente.");
     }
 
-    private async Task BackupBeforeMigrationAsync(CancellationToken cancellationToken)
+    private static AppSettings MigrateV2(JsonElement root)
+    {
+        JsonObject migrated = JsonNode.Parse(root.GetRawText())?.AsObject()
+            ?? throw new InvalidDataException("La configuration V2 doit être un objet.");
+        migrated[nameof(AppSettings.SchemaVersion)] = AppSettings.CurrentSchemaVersion;
+        migrated.Remove("ExpertModeAcknowledged");
+        migrated[nameof(AppSettings.Expert75DbAcknowledged)] = false;
+
+        MigrateV2Processing(migrated[nameof(AppSettings.Processing)]);
+        if (migrated[nameof(AppSettings.Profiles)] is JsonArray profiles)
+        {
+            foreach (JsonNode? profile in profiles)
+            {
+                if (profile is not JsonObject profileObject)
+                {
+                    throw new InvalidDataException("Un profil V2 est invalide.");
+                }
+
+                MigrateV2Processing(profileObject[nameof(AudioProfileSettings.Processing)]);
+            }
+        }
+
+        return migrated.Deserialize<AppSettings>(SerializerOptions)
+            ?? throw new InvalidDataException("La migration V2 n'a produit aucun réglage.");
+    }
+
+    private static bool ContainsObsoleteV3Property(JsonElement root)
+    {
+        if (root.TryGetProperty("ExpertModeAcknowledged", out _)
+            || root.TryGetProperty("Processing", out JsonElement processing)
+                && processing.ValueKind == JsonValueKind.Object
+                && processing.TryGetProperty("ExpertMaximumGainDb", out _))
+        {
+            return true;
+        }
+
+        if (!root.TryGetProperty("Profiles", out JsonElement profiles)
+            || profiles.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        foreach (JsonElement profile in profiles.EnumerateArray())
+        {
+            if (profile.ValueKind == JsonValueKind.Object
+                && profile.TryGetProperty("Processing", out JsonElement profileProcessing)
+                && profileProcessing.ValueKind == JsonValueKind.Object
+                && profileProcessing.TryGetProperty("ExpertMaximumGainDb", out _))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static void MigrateV2Processing(JsonNode? node)
+    {
+        if (node is not JsonObject processing)
+        {
+            throw new InvalidDataException("Un réglage audio V2 est invalide.");
+        }
+
+        processing.Remove("ExpertMaximumGainDb");
+        AudioProtectionMode mode = processing[nameof(AudioProcessingSettings.Mode)]
+            ?.Deserialize<AudioProtectionMode>(SerializerOptions)
+            ?? throw new InvalidDataException("Le mode audio V2 est absent.");
+        if (mode != AudioProtectionMode.RawExpert)
+        {
+            return;
+        }
+
+        double gain = processing[nameof(AudioProcessingSettings.MainGainDb)]
+            ?.GetValue<double>()
+            ?? throw new InvalidDataException("Le gain audio V2 est absent.");
+        processing[nameof(AudioProcessingSettings.MainGainDb)] =
+            AudioProcessingSettings.QuantizeRawExpertGain(gain);
+    }
+
+    private async Task BackupBeforeMigrationAsync(
+        int schemaVersion,
+        CancellationToken cancellationToken)
     {
         string backupPath = Path.Combine(
             storageDirectory,
-            "settings.schema1.backup.json");
+            $"settings.schema{schemaVersion}.backup.json");
         if (File.Exists(backupPath))
         {
             return;

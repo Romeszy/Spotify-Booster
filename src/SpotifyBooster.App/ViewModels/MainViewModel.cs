@@ -288,7 +288,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
             }
 
             if (value == AudioProtectionMode.RawExpert
-                && !settings.ExpertModeAcknowledged)
+                && !settings.Expert75DbAcknowledged)
             {
                 pendingProtectionMode = value;
                 ExpertConfirmationVisible = true;
@@ -312,9 +312,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         AudioProtectionMode.Direct =>
             "Gain, Bass Boost et égaliseur. Aucune dynamique imposée.",
         AudioProtectionMode.RawExpert =>
-            string.Create(
-                CultureInfo.CurrentCulture,
-                $"Jusqu’à +{settings.Processing.ExpertMaximumGainDb:0} dB, sans réduction automatique ni protection cachée."),
+            "Jusqu’à +75 dB, sans réduction automatique ni protection cachée.",
         _ =>
             "Soft clipper et limiteur actifs. Le gain demandé ne change jamais tout seul.",
     };
@@ -324,14 +322,16 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         get => mainGainDb;
         set
         {
-            double rounded = Math.Round(
-                Math.Clamp(
-                    value,
-                    AudioProcessingSettings.MinimumGainDb,
-                    GainMaximumDb),
-                1,
-                MidpointRounding.AwayFromZero);
-            if (!SetProperty(ref mainGainDb, rounded))
+            double safe = ProtectionMode == AudioProtectionMode.RawExpert
+                ? AudioProcessingSettings.QuantizeRawExpertGain(value)
+                : Math.Round(
+                    Math.Clamp(
+                        value,
+                        AudioProcessingSettings.MinimumGainDb,
+                        GainMaximumDb),
+                    1,
+                    MidpointRounding.AwayFromZero);
+            if (!SetProperty(ref mainGainDb, safe))
             {
                 return;
             }
@@ -339,46 +339,20 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
             RaiseGainProperties();
             ApplyProcessingChange(processing => processing with
             {
-                MainGainDb = rounded,
+                MainGainDb = safe,
             });
         }
     }
 
     public double GainMaximumDb =>
         ProtectionMode == AudioProtectionMode.RawExpert
-            ? settings.Processing.ExpertMaximumGainDb
+            ? AudioProcessingSettings.RawExpertMaximumGainDb
             : AudioProcessingSettings.StandardMaximumGainDb;
 
-    public double ExpertMaximumGainDb
-    {
-        get => settings.Processing.ExpertMaximumGainDb;
-        set
-        {
-            double safe = Math.Round(
-                Math.Clamp(
-                    value,
-                    AudioProcessingSettings.MinimumExpertMaximumGainDb,
-                    AudioProcessingSettings.ArchitecturalMaximumGainDb),
-                1,
-                MidpointRounding.AwayFromZero);
-            if (Math.Abs(safe - settings.Processing.ExpertMaximumGainDb) < 0.001)
-            {
-                return;
-            }
-
-            double clampedGain = Math.Min(mainGainDb, safe);
-            mainGainDb = clampedGain;
-            ApplyProcessingChange(processing => processing with
-            {
-                ExpertMaximumGainDb = safe,
-                MainGainDb = clampedGain,
-            });
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(GainMaximumDb));
-            OnPropertyChanged(nameof(ProtectionModeDescription));
-            RaiseGainProperties();
-        }
-    }
+    public double GainStepDb =>
+        ProtectionMode == AudioProtectionMode.RawExpert
+            ? AudioProcessingSettings.RawExpertGainStepDb
+            : 0.1;
 
     public double LinearGainFactor =>
         GainConversion.DecibelsToFactorDouble(MainGainDb);
@@ -1915,7 +1889,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
     {
         settings = settings with
         {
-            ExpertModeAcknowledged = true,
+            Expert75DbAcknowledged = true,
         };
         ExpertConfirmationVisible = false;
         AudioProtectionMode target =
@@ -2017,6 +1991,8 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
             },
             _ => processing with
             {
+                MainGainDb = AudioProcessingSettings.QuantizeRawExpertGain(
+                    processing.MainGainDb),
                 CompressorEnabled = false,
                 SoftClipperEnabled = false,
                 LimiterEnabled = false,
@@ -2433,7 +2409,6 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(LimiterReleaseMs));
         OnPropertyChanged(nameof(OutputGainDb));
         OnPropertyChanged(nameof(ParameterSmoothingMs));
-        OnPropertyChanged(nameof(ExpertMaximumGainDb));
         OnPropertyChanged(nameof(HeadphonesSafetyMode));
         OnPropertyChanged(nameof(StartWithWindows));
         OnPropertyChanged(nameof(StartMinimized));
@@ -2462,6 +2437,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(ProtectionModeText));
         OnPropertyChanged(nameof(ProtectionModeDescription));
         OnPropertyChanged(nameof(GainMaximumDb));
+        OnPropertyChanged(nameof(GainStepDb));
         OnPropertyChanged(nameof(OutputGainDb));
         OnPropertyChanged(nameof(SafetyWarningText));
         OnPropertyChanged(nameof(HasSafetyWarning));

@@ -117,4 +117,37 @@ public sealed class GainTests
         Assert.True(beforePanic > 10f);
         Assert.InRange(smoother.Current, 0.9999f, 1.02f);
     }
+
+    [Theory]
+    [InlineData(44_100, 20f)]
+    [InlineData(48_000, 20f)]
+    [InlineData(96_000, 20f)]
+    [InlineData(44_100, 1.5f)]
+    [InlineData(48_000, 1.5f)]
+    [InlineData(96_000, 1.5f)]
+    public void SmootherReachesTargetExactlyAtCeilingSampleCount(
+        int sampleRate,
+        float smoothingMilliseconds)
+    {
+        var smoother = new GainSmoother(sampleRate, smoothingMilliseconds, 1f)
+        {
+            Target = 5f,
+        };
+        int sampleCount = (int)Math.Ceiling(
+            sampleRate * (double)smoothingMilliseconds / 1000d);
+        float previous = smoother.Current;
+        for (int index = 1; index < sampleCount; index++)
+        {
+            float current = smoother.Next();
+            Assert.InRange(current, previous, 5f);
+            Assert.True(current < 5f);
+            previous = current;
+        }
+
+        Assert.Equal(5f, smoother.Next());
+        for (int index = 0; index < sampleCount * 2; index++)
+        {
+            Assert.Equal(5f, smoother.Next());
+        }
+    }
 }

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace SpotifyBooster.Core.Configuration;
 
 public enum AudioProtectionMode
@@ -19,15 +21,17 @@ public sealed record AudioProcessingSettings
 {
     public const double MinimumGainDb = 0;
     public const double StandardMaximumGainDb = 14;
-    public const double MinimumExpertMaximumGainDb = 25;
-    public const double DefaultExpertMaximumGainDb = 1_000;
-    public const double ArchitecturalMaximumGainDb = 1_000;
+    public const double RawExpertMaximumGainDb = 75;
+    public const double RawExpertGainStepDb = 0.5;
+    public const double ArchitecturalMaximumGainDb = RawExpertMaximumGainDb;
 
     public AudioProtectionMode Mode { get; init; } = AudioProtectionMode.Protected;
 
     public double MainGainDb { get; init; }
 
-    public double ExpertMaximumGainDb { get; init; } = DefaultExpertMaximumGainDb;
+    // Source-compatible alias for V2 callers. The product ceiling is fixed in V3.
+    [JsonIgnore]
+    public double ExpertMaximumGainDb { get; init; } = RawExpertMaximumGainDb;
 
     public bool DcBlockEnabled { get; init; } = true;
 
@@ -83,6 +87,23 @@ public sealed record AudioProcessingSettings
 
     public double MaximumAllowedGainDb =>
         Mode == AudioProtectionMode.RawExpert
-            ? ExpertMaximumGainDb
+            ? RawExpertMaximumGainDb
             : StandardMaximumGainDb;
+
+    public static double QuantizeRawExpertGain(double value)
+    {
+        if (!double.IsFinite(value))
+        {
+            throw new ArgumentOutOfRangeException(nameof(value), "Le gain doit être fini.");
+        }
+
+        double clamped = Math.Clamp(value, MinimumGainDb, RawExpertMaximumGainDb);
+        double steps = Math.Round(
+            clamped / RawExpertGainStepDb,
+            MidpointRounding.AwayFromZero);
+        return Math.Clamp(
+            steps * RawExpertGainStepDb,
+            MinimumGainDb,
+            RawExpertMaximumGainDb);
+    }
 }

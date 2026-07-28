@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace SpotifyBooster.Core.Configuration;
 
 public enum WindowCloseBehavior
@@ -45,12 +47,16 @@ public sealed record HotkeySettings
 
 public sealed record AppSettings
 {
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
 
     public bool FirstRunCompleted { get; init; }
 
+    public bool Expert75DbAcknowledged { get; init; }
+
+    // Source-compatible alias for the audio host. It is never persisted in V3.
+    [JsonIgnore]
     public bool ExpertModeAcknowledged { get; init; }
 
     public string? SourceDeviceId { get; init; }

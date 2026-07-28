@@ -21,7 +21,7 @@ public sealed class JsonSettingsServiceTests : IDisposable
         var settings = new AppSettings
         {
             FirstRunCompleted = true,
-            ExpertModeAcknowledged = true,
+            Expert75DbAcknowledged = true,
             SourceDeviceId = "capture-id",
             OutputDeviceId = "render-id",
             CloseBehavior = WindowCloseBehavior.Ask,
@@ -63,7 +63,7 @@ public sealed class JsonSettingsServiceTests : IDisposable
 
         Assert.Equal(AppSettings.CurrentSchemaVersion, loaded.SchemaVersion);
         Assert.Equal(settings.FirstRunCompleted, loaded.FirstRunCompleted);
-        Assert.Equal(settings.ExpertModeAcknowledged, loaded.ExpertModeAcknowledged);
+        Assert.Equal(settings.Expert75DbAcknowledged, loaded.Expert75DbAcknowledged);
         Assert.Equal(settings.SourceDeviceId, loaded.SourceDeviceId);
         Assert.Equal(settings.OutputDeviceId, loaded.OutputDeviceId);
         Assert.Equal(settings.CloseBehavior, loaded.CloseBehavior);
@@ -161,6 +161,71 @@ public sealed class JsonSettingsServiceTests : IDisposable
         Assert.Equal(
             migrated.Profiles.ToArray(),
             roundTripped.Profiles.ToArray());
+    }
+
+    [Fact]
+    public async Task Schema2MigrationQuantizesOnlyRawExpertAndCreatesExactBackup()
+    {
+        Directory.CreateDirectory(temporaryDirectory);
+        string settingsPath = Path.Combine(temporaryDirectory, "settings.json");
+        const string schema2 =
+            """
+            {
+              "SchemaVersion": 2,
+              "FirstRunCompleted": true,
+              "ExpertModeAcknowledged": true,
+              "Processing": {
+                "Mode": 2,
+                "MainGainDb": 74.6,
+                "ExpertMaximumGainDb": 1000,
+                "CompressorEnabled": false,
+                "SoftClipperEnabled": false,
+                "LimiterEnabled": false
+              },
+              "Profiles": [
+                {
+                  "Name": "Direct precise",
+                  "Processing": {
+                    "Mode": 1,
+                    "MainGainDb": 10.1,
+                    "ExpertMaximumGainDb": 1000,
+                    "CompressorEnabled": false,
+                    "SoftClipperEnabled": false,
+                    "LimiterEnabled": false
+                  }
+                },
+                {
+                  "Name": "Raw clamped",
+                  "Processing": {
+                    "Mode": 2,
+                    "MainGainDb": 1000,
+                    "ExpertMaximumGainDb": 1000,
+                    "CompressorEnabled": false,
+                    "SoftClipperEnabled": false,
+                    "LimiterEnabled": false
+                  }
+                }
+              ]
+            }
+            """;
+        await File.WriteAllTextAsync(
+            settingsPath,
+            schema2,
+            TestContext.Current.CancellationToken);
+
+        AppSettings migrated = await CreateService().LoadAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(3, migrated.SchemaVersion);
+        Assert.False(migrated.Expert75DbAcknowledged);
+        Assert.Equal(74.5, migrated.Processing.MainGainDb);
+        Assert.Equal(10.1, migrated.Profiles[0].Processing.MainGainDb);
+        Assert.Equal(75, migrated.Profiles[1].Processing.MainGainDb);
+        Assert.Equal(
+            schema2,
+            await File.ReadAllTextAsync(
+                Path.Combine(temporaryDirectory, "settings.schema2.backup.json"),
+                TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -274,8 +339,7 @@ public sealed class JsonSettingsServiceTests : IDisposable
             FirstRunCompleted = true,
             Processing = RawProcessing(25) with
             {
-                MainGainDb = 30,
-                ExpertMaximumGainDb = 25,
+                MainGainDb = 75.5,
             },
             Profiles = [],
         };
@@ -318,6 +382,5 @@ public sealed class JsonSettingsServiceTests : IDisposable
         DirectProcessing(gainDecibels) with
         {
             Mode = AudioProtectionMode.RawExpert,
-            ExpertMaximumGainDb = 25,
         };
 }

@@ -482,8 +482,8 @@
                   </StackPanel>
                   <Slider Minimum="0"
                           Maximum="{Binding GainMaximumDb}"
-                          TickFrequency="0.1"
-                          SmallChange="0.1"
+                          TickFrequency="{Binding GainStepDb}"
+                          SmallChange="{Binding GainStepDb}"
                           LargeChange="1"
                           IsSnapToTickEnabled="True"
                           Value="{Binding MainGainDb, UpdateSourceTrigger=PropertyChanged}"
@@ -1437,26 +1437,6 @@
                              HorizontalAlignment="Right"
                              Text="{Binding ParameterSmoothingMs, StringFormat={}{0:0.0} ms}" />
                 </Grid>
-                <Grid Margin="27,5,0,9">
-                  <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="150" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="86" />
-                  </Grid.ColumnDefinitions>
-                  <TextBlock VerticalAlignment="Center"
-                             Text="Plafond Expert" />
-                  <Slider Grid.Column="1"
-                          Minimum="25"
-                          Maximum="1000"
-                          TickFrequency="25"
-                          SmallChange="1"
-                          LargeChange="25"
-                          Value="{Binding ExpertMaximumGainDb}" />
-                  <TextBlock Grid.Column="2"
-                             Style="{StaticResource Text.Metric}"
-                             HorizontalAlignment="Right"
-                             Text="{Binding ExpertMaximumGainDb, StringFormat=+{0:0.0} dB}" />
-                </Grid>
                 <CheckBox Style="{StaticResource Setting.Check}"
                           IsChecked="{Binding HeadphonesSafetyMode}"
                           Content="Avertissements renforcés au casque" />
@@ -1779,7 +1759,7 @@
                          Text="Activer le mode Expert brut ?" />
               <TextBlock Style="{StaticResource Text.Secondary}"
                          Margin="0,10,0,0"
-                         Text="Ce mode peut demander jusqu’à +1000 dB, retire la réduction automatique et n’impose ni soft clipper ni limiteur. Une telle valeur dépasse l’amplitude float32 brute : le DSP reste fini en saturant ses magnitudes internes. Elle ne procure aucune puissance physique supplémentaire."
+                         Text="Ce mode peut demander jusqu’à +75 dB et n’impose ni compresseur, ni soft clipper, ni limiteur. Il peut provoquer saturation, distorsion et dommages auditifs. Réservé à un usage avancé."
                          TextWrapping="Wrap" />
               <Border Style="{StaticResource Banner.Warning}"
                       Margin="0,16,0,18">

@@ -33,17 +33,16 @@ public sealed class SettingsValidatorTests
     }
 
     [Fact]
-    public void RawExpertModeRequiresExplicitAcknowledgement()
+    public void RawExpertAcknowledgementIsUiStateNotStructuralValidation()
     {
         var settings = new AppSettings
         {
             FirstRunCompleted = true,
-            ExpertModeAcknowledged = false,
+            Expert75DbAcknowledged = false,
             Processing = new AudioProcessingSettings
             {
                 Mode = AudioProtectionMode.RawExpert,
-                MainGainDb = 1_000,
-                ExpertMaximumGainDb = 1_000,
+                MainGainDb = 75,
                 CompressorEnabled = false,
                 SoftClipperEnabled = false,
                 LimiterEnabled = false,
@@ -52,20 +51,15 @@ public sealed class SettingsValidatorTests
 
         SettingsValidationResult result = SettingsValidator.Validate(settings);
 
-        Assert.False(result.IsValid);
-        Assert.Contains(
-            result.Errors,
-            error => error.Contains(
-                "acquittement explicite",
-                StringComparison.OrdinalIgnoreCase));
+        Assert.True(result.IsValid, string.Join(" ", result.Errors));
     }
 
     [Theory]
     [InlineData(AudioProtectionMode.Direct, -0.01, 25)]
     [InlineData(AudioProtectionMode.Direct, 14.01, 25)]
     [InlineData(AudioProtectionMode.Protected, 14.01, 25)]
-    [InlineData(AudioProtectionMode.RawExpert, 25.01, 25)]
-    [InlineData(AudioProtectionMode.RawExpert, 1000.01, 1000)]
+    [InlineData(AudioProtectionMode.RawExpert, 75.5, 75)]
+    [InlineData(AudioProtectionMode.RawExpert, 10.1, 75)]
     public void GainOutsideModeLimitIsRejected(
         AudioProtectionMode mode,
         double gainDecibels,
@@ -89,6 +83,41 @@ public sealed class SettingsValidatorTests
         Assert.Contains(
             result.Errors,
             error => error.Contains("MainGainDb", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(74.24, 74.0)]
+    [InlineData(74.25, 74.5)]
+    [InlineData(74.6, 74.5)]
+    [InlineData(74.75, 75.0)]
+    [InlineData(1000, 75.0)]
+    public void RawExpertQuantizationUsesCanonicalHalfDbGrid(
+        double input,
+        double expected)
+    {
+        Assert.Equal(
+            expected,
+            AudioProcessingSettings.QuantizeRawExpertGain(input));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(0.5)]
+    [InlineData(10)]
+    [InlineData(10.5)]
+    [InlineData(75)]
+    public void RawExpertGridValuesAreValid(double gain)
+    {
+        AppSettings settings = ValidCompletedSettings() with
+        {
+            Processing = DirectProcessing() with
+            {
+                Mode = AudioProtectionMode.RawExpert,
+                MainGainDb = gain,
+            },
+        };
+
+        Assert.True(SettingsValidator.Validate(settings).IsValid);
     }
 
     [Fact]
@@ -118,8 +147,8 @@ public sealed class SettingsValidatorTests
     [Theory]
     [InlineData(AudioProtectionMode.Protected, 14d)]
     [InlineData(AudioProtectionMode.Direct, 14d)]
-    [InlineData(AudioProtectionMode.RawExpert, 25d)]
-    [InlineData(AudioProtectionMode.RawExpert, 1000d)]
+    [InlineData(AudioProtectionMode.RawExpert, 0d)]
+    [InlineData(AudioProtectionMode.RawExpert, 75d)]
     public void GainAtEachModeBoundaryIsAccepted(
         AudioProtectionMode mode,
         double gainDecibels)
@@ -311,7 +340,7 @@ public sealed class SettingsValidatorTests
     {
         AppSettings settings = ValidCompletedSettings() with
         {
-            ExpertModeAcknowledged = true,
+            Expert75DbAcknowledged = true,
             CloseBehavior = WindowCloseBehavior.Ask,
             Theme = InterfaceTheme.System,
             Density = InterfaceDensity.Comfortable,
@@ -385,7 +414,7 @@ public sealed class SettingsValidatorTests
         new()
         {
             FirstRunCompleted = true,
-            ExpertModeAcknowledged = true,
+            Expert75DbAcknowledged = true,
             Processing = DirectProcessing(),
             Profiles = [],
         };

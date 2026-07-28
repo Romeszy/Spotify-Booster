@@ -31,13 +31,6 @@ public static class SettingsValidator
         ValidateDeviceId(settings.OutputDeviceId, nameof(settings.OutputDeviceId), errors);
         ValidateProcessing(settings.Processing, "Processing", errors);
         ValidateHotkeys(settings.Hotkeys, errors);
-        if (settings.Processing?.Mode == AudioProtectionMode.RawExpert
-            && !settings.ExpertModeAcknowledged)
-        {
-            errors.Add(
-                "Le mode Expert brut exige un acquittement explicite avant son activation.");
-        }
-
         if (settings.Profiles is null)
         {
             errors.Add("Profiles ne peut pas être nul.");
@@ -278,14 +271,8 @@ public static class SettingsValidator
 
         ValidateEnum(processing.Mode, $"{prefix}.Mode", errors);
         ValidateEnum(processing.BassProfile, $"{prefix}.BassProfile", errors);
-        ValidateFiniteRange(
-            processing.ExpertMaximumGainDb,
-            AudioProcessingSettings.MinimumExpertMaximumGainDb,
-            AudioProcessingSettings.ArchitecturalMaximumGainDb,
-            $"{prefix}.ExpertMaximumGainDb",
-            errors);
         double allowedGain = processing.Mode == AudioProtectionMode.RawExpert
-            ? processing.ExpertMaximumGainDb
+            ? AudioProcessingSettings.RawExpertMaximumGainDb
             : AudioProcessingSettings.StandardMaximumGainDb;
         ValidateFiniteRange(
             processing.MainGainDb,
@@ -293,6 +280,16 @@ public static class SettingsValidator
             allowedGain,
             $"{prefix}.MainGainDb",
             errors);
+        if (processing.Mode == AudioProtectionMode.RawExpert
+            && double.IsFinite(processing.MainGainDb)
+            && Math.Abs(
+                (processing.MainGainDb / AudioProcessingSettings.RawExpertGainStepDb)
+                - Math.Round(
+                    processing.MainGainDb / AudioProcessingSettings.RawExpertGainStepDb))
+                > 1e-9)
+        {
+            errors.Add($"{prefix}.MainGainDb doit être aligné sur la grille de 0,5 dB.");
+        }
         ValidateFiniteRange(processing.BassFrequencyHz, 35, 200, $"{prefix}.BassFrequencyHz", errors);
         ValidateFiniteRange(processing.BassGainDb, 0, 18, $"{prefix}.BassGainDb", errors);
         ValidateFiniteRange(processing.BassSlope, 0.25, 2, $"{prefix}.BassSlope", errors);
