@@ -1,0 +1,1 @@
+-- Intentionally empty. Phase A seed data must never contain personal data.

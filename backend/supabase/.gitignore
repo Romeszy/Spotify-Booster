@@ -1,0 +1,4 @@
+# Machine-local cryptographic material and Supabase runtime state.
+.local/
+.temp/
+.branches/
