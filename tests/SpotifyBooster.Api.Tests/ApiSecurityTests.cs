@@ -951,6 +951,260 @@ public sealed class ApiSecurityTests : IDisposable
     }
 
     [Fact]
+    public async Task MeterListenerProvokesExactClosedJwksDecisionEventSet()
+    {
+        var decisions = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        TaskCompletionSource? staleCompletionObserved = null;
+        using var metrics = new ApiMetrics();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, current) =>
+        {
+            if (ReferenceEquals(instrument, metrics.JwksDecisions))
+                current.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((_, value, tags, _) =>
+        {
+            Assert.Equal(1, value);
+            var decision = MetricLabels(tags)["event=".Length..];
+            decisions.Enqueue(decision);
+            if (decision == "stale_completion_discarded")
+                Volatile.Read(ref staleCompletionObserved)?.TrySetResult();
+        });
+        listener.Start();
+
+        var sharedResponse = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var sharedStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using (var sharedClient = new HttpClient(new Handler((_, _) =>
+               {
+                   sharedStarted.TrySetResult();
+                   return sharedResponse.Task;
+               })))
+        using (var shared = new JwksCoordinator(sharedClient, Options(),
+                   new FakeTimeProvider(DateTimeOffset.Parse("2026-01-01T00:00:00Z")), metrics))
+        {
+            var leader = shared.FindAsync("shared", TestContext.Current.CancellationToken);
+            await sharedStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+            var joiner = shared.FindAsync("shared", TestContext.Current.CancellationToken);
+            sharedResponse.SetResult(Json(HttpStatusCode.OK, RsaJwks("shared")));
+            using var leaderLease = await leader;
+            using var joinerLease = await joiner;
+            Assert.NotNull(leaderLease);
+            Assert.NotNull(joinerLease);
+        }
+
+        using (var unknownClient = new HttpClient(new Handler((_, _) =>
+                   Task.FromResult(Json(HttpStatusCode.OK, RsaJwks("known"))))))
+        using (var unknown = new JwksCoordinator(unknownClient, Options(),
+                   new FakeTimeProvider(DateTimeOffset.Parse("2026-01-01T00:00:00Z")), metrics))
+        {
+            Assert.Null(await unknown.FindAsync("missing",
+                TestContext.Current.CancellationToken));
+            Assert.Null(await unknown.FindAsync("still-missing",
+                TestContext.Current.CancellationToken));
+        }
+
+        using (var retryClient = new HttpClient(new Handler((_, _) =>
+                   Task.FromResult(Json(HttpStatusCode.ServiceUnavailable, "{}")))))
+        using (var retry = new JwksCoordinator(retryClient, Options(),
+                   new FakeTimeProvider(DateTimeOffset.Parse("2026-01-01T00:00:00Z")), metrics))
+        {
+            Assert.Null(await retry.FindAsync("retry",
+                TestContext.Current.CancellationToken));
+            Assert.Null(await retry.FindAsync("retry-again",
+                TestContext.Current.CancellationToken));
+        }
+
+        var epochOld = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var epochPurge = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var epochOldStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var epochPurgeStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var epochCalls = 0;
+        using (var epochClient = new HttpClient(new Handler((_, _) =>
+               {
+                   if (Interlocked.Increment(ref epochCalls) == 1)
+                   {
+                       epochOldStarted.TrySetResult();
+                       return epochOld.Task;
+                   }
+                   epochPurgeStarted.TrySetResult();
+                   return epochPurge.Task;
+               })))
+        using (var epoch = new JwksCoordinator(epochClient, Options(),
+                   new FakeTimeProvider(DateTimeOffset.Parse("2026-01-01T00:00:00Z")), metrics))
+        {
+            var old = epoch.FindAsync("epoch-old", TestContext.Current.CancellationToken);
+            await epochOldStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+            var purge = epoch.PurgeAsync(TestContext.Current.CancellationToken);
+            await epochPurgeStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+            epochPurge.SetResult(Json(HttpStatusCode.ServiceUnavailable, "{}"));
+            await purge;
+            Assert.Null(await old);
+            var epochStale = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            Volatile.Write(ref staleCompletionObserved, epochStale);
+            epochOld.SetResult(Json(HttpStatusCode.ServiceUnavailable, "{}"));
+            await epochStale.Task.WaitAsync(TestContext.Current.CancellationToken);
+            Volatile.Write(ref staleCompletionObserved, null);
+        }
+
+        var generationTime =
+            new FakeTimeProvider(DateTimeOffset.Parse("2026-01-01T00:00:00Z"));
+        var generationOld = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var generationStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var generationCalls = 0;
+        using (var generationClient = new HttpClient(new Handler((_, _) =>
+               {
+                   var call = Interlocked.Increment(ref generationCalls);
+                   if (call == 1)
+                       return Task.FromResult(Json(HttpStatusCode.OK, RsaJwks("generation-known")));
+                   if (call == 2)
+                   {
+                       generationStarted.TrySetResult();
+                       return generationOld.Task;
+                   }
+                   return Task.FromResult(Json(HttpStatusCode.OK, RsaJwks("generation-new")));
+               })))
+        using (var generation = new JwksCoordinator(generationClient, Options(),
+                   generationTime, metrics))
+        {
+            using var known = await generation.FindAsync("generation-known",
+                TestContext.Current.CancellationToken);
+            generationTime.Advance(TimeSpan.FromSeconds(60));
+            var old = generation.FindAsync("generation-unknown",
+                TestContext.Current.CancellationToken);
+            await generationStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+            generationTime.AdvanceWithoutFiringTimers(TimeSpan.FromMinutes(9));
+            using var current = await generation.FindAsync("generation-new",
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(current);
+            Assert.Null(await old);
+            var generationStale = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            Volatile.Write(ref staleCompletionObserved, generationStale);
+            generationOld.SetResult(Json(HttpStatusCode.ServiceUnavailable, "{}"));
+            await generationStale.Task.WaitAsync(TestContext.Current.CancellationToken);
+            Volatile.Write(ref staleCompletionObserved, null);
+        }
+
+        Assert.Equal(
+            "epoch_invalidated,generation_invalidated,joined_inflight,leader_created," +
+            "retry_gate_rejected,stale_completion_discarded,unknown_after_refresh," +
+            "unknown_cooldown_rejected,validation_succeeded_after_refresh",
+            string.Join(',', decisions.Distinct(StringComparer.Ordinal)
+                .OrderBy(static value => value, StringComparer.Ordinal)));
+        Assert.All(decisions, value => Assert.Matches(
+            "^(leader_created|joined_inflight|retry_gate_rejected|" +
+            "unknown_cooldown_rejected|validation_succeeded_after_refresh|" +
+            "unknown_after_refresh|stale_completion_discarded|epoch_invalidated|" +
+            "generation_invalidated)$", value));
+    }
+
+    [Fact]
+    public async Task MetricSeriesRemainInvariantAcrossOneThousandSensitiveDimensions()
+    {
+        var measurements =
+            new System.Collections.Concurrent.ConcurrentQueue<(string Name, string Labels)>();
+        using var metrics = new ApiMetrics();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, current) =>
+        {
+            if (ReferenceEquals(instrument, metrics.JwksDecisions) ||
+                ReferenceEquals(instrument, metrics.JwtRejections) ||
+                ReferenceEquals(instrument, metrics.RateLimitRejections))
+                current.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+        {
+            Assert.Equal(1, value);
+            measurements.Enqueue((instrument.Name, MetricLabels(tags)));
+        });
+        listener.Start();
+        var sensitiveInputs = new List<string>(6_000);
+
+        using var client = new HttpClient(new Handler((_, _) =>
+            Task.FromResult(Json(HttpStatusCode.OK, RsaJwks("known")))));
+        using var coordinator = new JwksCoordinator(client, Options(),
+            new FakeTimeProvider(DateTimeOffset.Parse("2026-01-01T00:00:00Z")), metrics);
+        using var known = await coordinator.FindAsync("known",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(known);
+        for (var index = 0; index < 1_000; index++)
+        {
+            var email = $"person{index:D4}@example.test";
+            var kid = $"kid-{index:D4}-{email}";
+            sensitiveInputs.Add(email);
+            sensitiveInputs.Add(kid);
+            Assert.Null(await coordinator.FindAsync(kid,
+                TestContext.Current.CancellationToken));
+        }
+
+        var validator = new SupabaseJwtValidator(coordinator, Options(),
+            new FakeTimeProvider(DateTimeOffset.Parse("2026-01-01T00:00:00Z")), metrics);
+        for (var index = 0; index < 1_000; index++)
+        {
+            var bytes = new byte[16];
+            BitConverter.TryWriteBytes(bytes.AsSpan(0, sizeof(int)), index + 1);
+            var subject = new Guid(bytes);
+            var subjectValue = subject.ToString();
+            var host = $"private-{index:D4}.example";
+            sensitiveInputs.Add(subjectValue);
+            sensitiveInputs.Add(host);
+            var token = Token("RS256", "known", subject,
+                DateTimeOffset.Parse("2026-01-01T00:05:00Z"),
+                issuer: $"https://{host}");
+            sensitiveInputs.Add(token);
+            Assert.False((await validator.ValidateAsync(token,
+                TestContext.Current.CancellationToken)).Succeeded);
+        }
+
+        var limiter = new FixedWindowLimiter(
+            new FakeTimeProvider(DateTimeOffset.Parse("2026-01-01T00:00:00Z")));
+        var middleware = new ApiRateLimitingMiddleware(_ => Task.CompletedTask);
+        for (var index = 0; index < 1_000; index++)
+        {
+            var ip = $"10.0.{index / 256}.{index % 256}";
+            sensitiveInputs.Add(ip);
+            for (var request = 0; request < 11; request++)
+            {
+                var context = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+                context.Request.Path = "/v1/me";
+                context.Connection.RemoteIpAddress = IPAddress.Parse(ip);
+                using var body = new MemoryStream();
+                context.Response.Body = body;
+                await middleware.InvokeAsync(context, limiter, metrics);
+            }
+        }
+
+        Assert.Equal(1_000, measurements.Count(value =>
+            value == ("jwks_decision_events_total", "event=unknown_cooldown_rejected")));
+        Assert.Equal(1_000, measurements.Count(value =>
+            value == ("jwt_rejections_total", "reason=issuer")));
+        Assert.Equal(1_000, measurements.Count(value =>
+            value == ("rate_limit_rejections_total", "policy=authenticated_api")));
+        Assert.Equal(
+            "jwks_decision_events_total|event=leader_created," +
+            "jwks_decision_events_total|event=unknown_cooldown_rejected," +
+            "jwks_decision_events_total|event=validation_succeeded_after_refresh," +
+            "jwt_rejections_total|reason=issuer," +
+            "rate_limit_rejections_total|policy=authenticated_api",
+            string.Join(',', measurements
+                .Select(static value => $"{value.Name}|{value.Labels}")
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(static value => value, StringComparer.Ordinal)));
+        foreach (var sensitive in sensitiveInputs)
+            Assert.DoesNotContain(measurements, value =>
+                value.Labels.Contains(sensitive, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task MeterListenerCapturesEveryClosedJwtRejectionReason()
     {
         var reasons = new System.Collections.Concurrent.ConcurrentQueue<string>();
@@ -1366,6 +1620,11 @@ public sealed class ApiSecurityTests : IDisposable
             FakeTimer[] timers;
             lock (_sync) timers = _timers.ToArray();
             foreach (var timer in timers) timer.FireDue(_utcNow);
+        }
+        public void AdvanceWithoutFiringTimers(TimeSpan value)
+        {
+            _utcNow += value;
+            Interlocked.Add(ref _timestamp, (long)(value.TotalSeconds * TimestampFrequency));
         }
         public override ITimer CreateTimer(TimerCallback callback, object? state,
             TimeSpan dueTime, TimeSpan period)
