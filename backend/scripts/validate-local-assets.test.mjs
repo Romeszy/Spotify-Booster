@@ -1,15 +1,31 @@
-import test from 'node:test';
+import test, { after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPrivateKey, generateKeyPairSync, sign } from 'node:crypto';
-import { mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const validator = fileURLToPath(new URL('./validate-local-assets.mjs', import.meta.url));
+const fixturePrefixes=['spotify-booster-assets-','spotify-booster-outside-'];
+const initialFixtureNames=new Set(readdirSync(tmpdir()).filter(name=>fixturePrefixes.some(prefix=>name.startsWith(prefix))));
+const fixtureDirectories=new Set();
+function fixtureDirectory(prefix) {
+  const directory=mkdtempSync(join(tmpdir(),prefix));
+  fixtureDirectories.add(directory);
+  return directory;
+}
+afterEach(()=>{
+  for (const directory of fixtureDirectories) rmSync(directory,{recursive:true,force:true});
+  fixtureDirectories.clear();
+});
+after(()=>{
+  const remaining=readdirSync(tmpdir()).filter(name=>fixturePrefixes.some(prefix=>name.startsWith(prefix))&&!initialFixtureNames.has(name));
+  assert.deepEqual(remaining,[],'test suite must leave no new private fixture directory');
+});
 function fixture() {
-  const dir = mkdtempSync(join(tmpdir(), 'spotify-booster-assets-'));
+  const dir = fixtureDirectory('spotify-booster-assets-');
   const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
   const jwk = privateKey.export({ format: 'jwk' });
   Object.assign(jwk, { use: 'sig', key_ops: ['sign','verify'], alg: 'ES256', ext: true, kid: '123e4567-e89b-42d3-a456-426614174000' });
@@ -82,7 +98,7 @@ test('native parse details and injected secret markers never enter error output'
 });
 
 test('canonical confinement refuses symlinked staging paths', () => {
-  const { dir, jwk } = fixture(); const outside=mkdtempSync(join(tmpdir(),'spotify-booster-outside-'));
+  const { dir, jwk } = fixture(); const outside=fixtureDirectory('spotify-booster-outside-');
   const target=join(outside,'key.json'); writeFileSync(target,JSON.stringify([jwk]));
   const link=join(dir,'linked'); symlinkSync(outside,link,'junction');
   const result=run('validate-jwk',join(link,'key.json'),dir);
