@@ -47,6 +47,12 @@ Exemples :
 `Expert75DbAcknowledged` devient toujours `false` afin d’afficher le nouvel
 avertissement. Le backup s’appelle `settings.schema2.backup.json`.
 
+La preuve automatisée couvre séparément les deux valeurs de l’ancien champ,
+le rejet d’un document déjà V3 qui contient encore
+`ExpertModeAcknowledged`, puis un second chargement du V3 migré. Ce second
+chargement ne réécrit ni `settings.json` ni le backup : la migration est
+idempotente une fois le schéma V3 produit.
+
 ## Atomicité
 
 La migration :

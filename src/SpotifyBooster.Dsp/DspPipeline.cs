@@ -242,7 +242,11 @@ public sealed class DspPipeline
 
             afterEqualizerPeak = UpdatePeak(afterEqualizerPeak, left, right);
             compressor.Process(ref left, ref right);
-            SanitizePair(ref left, ref right, ref sanitizedSamples);
+            if (SanitizePair(ref left, ref right, ref sanitizedSamples))
+            {
+                compressor.Reset();
+            }
+
             maximumCompressorReduction = Math.Max(
                 maximumCompressorReduction,
                 compressor.GainReductionDecibels);
@@ -259,7 +263,11 @@ public sealed class DspPipeline
             maximumLimiterReduction = Math.Max(
                 maximumLimiterReduction,
                 limiter.GainReductionDecibels);
-            SanitizePair(ref left, ref right, ref sanitizedSamples);
+            if (SanitizePair(ref left, ref right, ref sanitizedSamples))
+            {
+                limiter.Reset();
+            }
+
             afterLimiterPeak = UpdatePeak(afterLimiterPeak, left, right);
 
             float appliedOutputGain = outputGain.Next();

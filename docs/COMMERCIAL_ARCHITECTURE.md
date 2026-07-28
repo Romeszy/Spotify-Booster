@@ -47,6 +47,13 @@ de présenter des écrans ou un stockage de session non livrés comme
 opérationnels. `SpotifyBooster.Api` ne référence pas Auth : il valide le bearer
 entrant et utilise un appel Data API limité à `/v1/me`.
 
+Les modèles réseau restent dans `SpotifyBooster.Contracts`, sans dépendance
+projet. Les abstractions applicatives `IAuthenticationService`,
+`IEntitlementService` et `IUpdateService` résident dans
+`SpotifyBooster.Core.Abstractions`. Ainsi, l’adaptateur Auth dépend du Core et
+des contrats, tandis que les contrats wire ne dépendent d’aucune couche
+applicative.
+
 ## Frontières
 
 | Frontière | Règle |
@@ -70,6 +77,12 @@ entrant et utilise un appel Data API limité à `/v1/me`.
 
 Les contrats des phases suivantes stabilisent les interfaces. Ils n’accordent
 aucun droit Pro et ne déclenchent aucun paiement ou téléchargement.
+
+Le statut commercial futur `canceled` conserve Pro uniquement avant
+`EntitlementExpiresAt` lorsque cette fin de période existe. À l’instant exact
+d’expiration et après, l’accès est désactivé. Cette règle est évaluée dans le
+contrat d’entitlement central, jamais par comparaison directe d’une chaîne
+Stripe dans un appelant.
 
 ## Rollback
 

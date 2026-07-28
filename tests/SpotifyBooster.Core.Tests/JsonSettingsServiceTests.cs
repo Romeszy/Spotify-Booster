@@ -295,6 +295,70 @@ public sealed class JsonSettingsServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Schema2MigrationIsIdempotentAfterV3Rewrite()
+    {
+        Directory.CreateDirectory(temporaryDirectory);
+        string settingsPath = Path.Combine(temporaryDirectory, "settings.json");
+        const string schema2 =
+            """{"SchemaVersion":2,"FirstRunCompleted":true,"ExpertModeAcknowledged":true,"Processing":{"Mode":2,"MainGainDb":74.6,"ExpertMaximumGainDb":1000,"CompressorEnabled":false,"SoftClipperEnabled":false,"LimiterEnabled":false},"Profiles":[]}""";
+        await File.WriteAllTextAsync(
+            settingsPath,
+            schema2,
+            TestContext.Current.CancellationToken);
+        var service = CreateService();
+
+        AppSettings first = await service.LoadAsync(TestContext.Current.CancellationToken);
+        byte[] firstV3 = await File.ReadAllBytesAsync(
+            settingsPath,
+            TestContext.Current.CancellationToken);
+        byte[] firstBackup = await File.ReadAllBytesAsync(
+            Path.Combine(temporaryDirectory, "settings.schema2.backup.json"),
+            TestContext.Current.CancellationToken);
+
+        AppSettings second = await service.LoadAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(first with { Profiles = second.Profiles }, second);
+        Assert.Equal(first.Profiles.ToArray(), second.Profiles.ToArray());
+        Assert.Equal(74.5, second.Processing.MainGainDb);
+        Assert.False(second.Expert75DbAcknowledged);
+        Assert.Equal(
+            firstV3,
+            await File.ReadAllBytesAsync(
+                settingsPath,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            firstBackup,
+            await File.ReadAllBytesAsync(
+                Path.Combine(temporaryDirectory, "settings.schema2.backup.json"),
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Schema3RejectsObsoleteExpertModeAcknowledgedWithoutRewritingSource()
+    {
+        Directory.CreateDirectory(temporaryDirectory);
+        string settingsPath = Path.Combine(temporaryDirectory, "settings.json");
+        const string invalidV3 =
+            """{"SchemaVersion":3,"FirstRunCompleted":true,"Expert75DbAcknowledged":true,"ExpertModeAcknowledged":true,"Processing":{"Mode":1,"MainGainDb":10.1,"CompressorEnabled":false,"SoftClipperEnabled":false,"LimiterEnabled":false},"Profiles":[]}""";
+        await File.WriteAllTextAsync(
+            settingsPath,
+            invalidV3,
+            TestContext.Current.CancellationToken);
+
+        AppSettings loaded = await CreateService().LoadAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.False(loaded.FirstRunCompleted);
+        Assert.False(loaded.Expert75DbAcknowledged);
+        Assert.Equal(
+            invalidV3,
+            await File.ReadAllTextAsync(
+                settingsPath,
+                TestContext.Current.CancellationToken));
+        Assert.NotEmpty(errorSink.GetRecent());
+    }
+
+    [Fact]
     public async Task BackupWriteFailureLeavesSchema2SourceUntouched()
     {
         Directory.CreateDirectory(temporaryDirectory);

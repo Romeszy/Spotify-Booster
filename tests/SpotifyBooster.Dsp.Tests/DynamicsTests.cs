@@ -76,6 +76,52 @@ public sealed class DynamicsTests
     }
 
     [Fact]
+    public void CompressorSanitizesPathologicalFrameAndRecoversOnNextFrame()
+    {
+        var compressor = new StereoCompressor(
+            48_000,
+            enabled: true,
+            thresholdDecibels: -18f,
+            ratio: 4f,
+            attackMilliseconds: 1f,
+            releaseMilliseconds: 100f);
+        float left = float.PositiveInfinity;
+        float right = float.NaN;
+
+        compressor.Process(ref left, ref right);
+
+        Assert.True(float.IsFinite(left));
+        Assert.True(float.IsFinite(right));
+        left = 0.25f;
+        right = -0.25f;
+        compressor.Process(ref left, ref right);
+        Assert.True(float.IsFinite(left));
+        Assert.True(float.IsFinite(right));
+        Assert.True(left > 0f);
+        Assert.True(right < 0f);
+    }
+
+    [Fact]
+    public void LimiterSanitizesPathologicalFrameAndRecoversOnNextFrame()
+    {
+        var limiter = new StereoLimiter(48_000, enabled: true);
+        float left = float.NegativeInfinity;
+        float right = float.NaN;
+
+        limiter.Process(ref left, ref right);
+
+        Assert.True(float.IsFinite(left));
+        Assert.True(float.IsFinite(right));
+        left = 0.25f;
+        right = -0.25f;
+        limiter.Process(ref left, ref right);
+        Assert.True(float.IsFinite(left));
+        Assert.True(float.IsFinite(right));
+        Assert.True(left > 0f);
+        Assert.True(right < 0f);
+    }
+
+    [Fact]
     public void DisabledSoftClipperIsTransparentAboveDigitalFullScale()
     {
         var clipper = new StereoSoftClipper(enabled: false);

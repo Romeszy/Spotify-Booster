@@ -20,18 +20,28 @@ public sealed record EntitlementContract(
     SubscriptionStatus SubscriptionStatus,
     DateTimeOffset? EntitlementExpiresAt,
     bool IsOfflineGraceActive,
-    IReadOnlySet<CommercialFeature> Features)
+    HashSet<CommercialFeature> Features)
 {
     public bool IsFeatureEnabled(CommercialFeature feature) =>
-        IsAuthenticated && Plan == CommercialPlan.Pro &&
-        SubscriptionStatus is SubscriptionStatus.Trialing or SubscriptionStatus.Active or SubscriptionStatus.PastDue &&
-        (EntitlementExpiresAt is null || EntitlementExpiresAt > DateTimeOffset.UtcNow || IsOfflineGraceActive) &&
-        Features.Contains(feature);
-}
+        IsFeatureEnabled(feature, DateTimeOffset.UtcNow);
 
-public interface IEntitlementService
-{
-    ValueTask<EntitlementContract> GetAsync(CancellationToken cancellationToken = default);
-    Task<EntitlementContract> RefreshAsync(CancellationToken cancellationToken = default);
-    Task RequireFeatureAsync(CommercialFeature feature, CancellationToken cancellationToken = default);
+    public bool IsFeatureEnabled(CommercialFeature feature, DateTimeOffset evaluatedAt) =>
+        IsAuthenticated && Plan == CommercialPlan.Pro &&
+        IsStatusEligible(evaluatedAt) &&
+        Features.Contains(feature);
+
+    private bool IsStatusEligible(DateTimeOffset evaluatedAt) =>
+        SubscriptionStatus switch
+        {
+            SubscriptionStatus.Trialing
+                or SubscriptionStatus.Active
+                or SubscriptionStatus.PastDue =>
+                EntitlementExpiresAt is null
+                || EntitlementExpiresAt > evaluatedAt
+                || IsOfflineGraceActive,
+            SubscriptionStatus.Canceled =>
+                EntitlementExpiresAt is not null
+                && EntitlementExpiresAt > evaluatedAt,
+            _ => false,
+        };
 }

@@ -61,6 +61,11 @@ ne possède plus de clamp caché `±64`; seul un overflow numérique est saturé
 `±float.MaxValue`. NaN devient zéro, Inf devient la valeur float maximale avec
 son signe, et une métrique est incrémentée. Un filtre stateful contaminé
 réinitialise uniquement le canal concerné.
+Le compresseur et le limiteur, dont l’état de détection/gain est stéréo lié,
+réinitialisent cet état partagé lorsqu’un résultat non fini est détecté. Des
+tests ciblés injectent NaN/Inf dans chacun de ces deux processeurs et vérifient
+une sortie finie immédiate puis la récupération sur la trame suivante. Le
+chemin désactivé reste transparent.
 
 Ces protections assurent la stabilité numérique, pas la sécurité auditive.
 `+75 dB` peut saturer immédiatement, produire une forte distorsion et endommager
