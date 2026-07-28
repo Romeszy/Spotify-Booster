@@ -1184,12 +1184,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         {
             if (ProtectionMode == AudioProtectionMode.RawExpert)
             {
-                if (MainGainDb >= 100)
-                {
-                    return "Gain extrême : le DSP borne les magnitudes internes pour rester fini. Le résultat sera essentiellement saturé ou limité, sans puissance physique supplémentaire.";
-                }
-
-                return "Expert brut : aucune protection cachée. Un signal au-dessus de 0 dBFS peut saturer immédiatement.";
+                return "Expert brut jusqu’à +75 dB : aucune protection n’est imposée. Ce niveau peut saturer immédiatement et n’est pas sûr pour l’audition ou le matériel.";
             }
 
             if (OutputGainDb > 0)

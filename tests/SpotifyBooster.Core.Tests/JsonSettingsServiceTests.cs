@@ -1,7 +1,9 @@
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using SpotifyBooster.Core.Configuration;
 using SpotifyBooster.Infrastructure.Diagnostics;
+using SpotifyBooster.Infrastructure.Logging;
 using SpotifyBooster.Infrastructure.Persistence;
 
 namespace SpotifyBooster.Core.Tests;
@@ -477,6 +479,68 @@ public sealed class JsonSettingsServiceTests : IDisposable
         Assert.True(loaded.Processing.SoftClipperEnabled);
         Assert.True(loaded.Processing.LimiterEnabled);
         Assert.NotEmpty(errorSink.GetRecent());
+    }
+
+    [Fact]
+    public async Task InvalidProfileNameIsAbsentFromFileLogAndErrorSink()
+    {
+        const string sensitiveProfileName = "PERSONAL-NAME-DO-NOT-LOG";
+        Directory.CreateDirectory(temporaryDirectory);
+        string settingsPath = Path.Combine(temporaryDirectory, "settings.json");
+        AppSettings invalidSettings = new()
+        {
+            FirstRunCompleted = true,
+            Processing = DirectProcessing(0),
+            Profiles =
+            [
+                new AudioProfileSettings
+                {
+                    Name = sensitiveProfileName,
+                    Processing = DirectProcessing(0),
+                },
+                new AudioProfileSettings
+                {
+                    Name = sensitiveProfileName,
+                    Processing = RawProcessing(75.5),
+                },
+            ],
+        };
+        await File.WriteAllTextAsync(
+            settingsPath,
+            JsonSerializer.Serialize(invalidSettings),
+            TestContext.Current.CancellationToken);
+
+        string logDirectory = Path.Combine(temporaryDirectory, "logs");
+        using var provider = new AsyncFileLoggerProvider(
+            logDirectory,
+            maximumLogFileBytes: 1_048_576);
+        using (ILoggerFactory loggerFactory = LoggerFactory.Create(
+            builder => builder.AddProvider(provider)))
+        {
+            var service = new JsonSettingsService(
+                loggerFactory.CreateLogger<JsonSettingsService>(),
+                errorSink,
+                temporaryDirectory);
+
+            AppSettings loaded = await service.LoadAsync(
+                TestContext.Current.CancellationToken);
+
+            Assert.False(loaded.FirstRunCompleted);
+        }
+        provider.Dispose();
+
+        string logText = await File.ReadAllTextAsync(
+            Path.Combine(logDirectory, "spotify-booster.log"),
+            TestContext.Current.CancellationToken);
+        string errorText = string.Join(
+            " ",
+            errorSink.GetRecent().Select(
+                error => $"{error.Component} {error.Message}"));
+
+        Assert.Contains("Catégorie : validation.", logText, StringComparison.Ordinal);
+        Assert.Contains("paramètres sûrs par défaut", errorText, StringComparison.Ordinal);
+        Assert.DoesNotContain(sensitiveProfileName, logText, StringComparison.Ordinal);
+        Assert.DoesNotContain(sensitiveProfileName, errorText, StringComparison.Ordinal);
     }
 
     [Fact]

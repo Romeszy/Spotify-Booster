@@ -41,24 +41,27 @@ public static class SettingsValidator
         }
 
         var profileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (AudioProfileSettings? profile in settings.Profiles ?? [])
+        IReadOnlyList<AudioProfileSettings> profiles = settings.Profiles ?? [];
+        for (int profileIndex = 0; profileIndex < profiles.Count; profileIndex++)
         {
+            AudioProfileSettings? profile = profiles[profileIndex];
+            string profilePrefix = $"Profiles[{profileIndex}]";
             if (profile is null)
             {
-                errors.Add("Un profil ne peut pas être nul.");
+                errors.Add($"{profilePrefix} ne peut pas être nul.");
                 continue;
             }
 
             if (string.IsNullOrWhiteSpace(profile.Name) || profile.Name.Length > 64)
             {
-                errors.Add("Chaque profil doit avoir un nom de 1 à 64 caractères.");
+                errors.Add($"{profilePrefix}.Name doit contenir de 1 à 64 caractères.");
             }
             else if (!profileNames.Add(profile.Name))
             {
-                errors.Add($"Le profil « {profile.Name} » est dupliqué.");
+                errors.Add($"{profilePrefix}.Name est dupliqué.");
             }
 
-            ValidateProcessing(profile.Processing, $"Profiles[{profile.Name}]", errors);
+            ValidateProcessing(profile.Processing, $"{profilePrefix}.Processing", errors);
         }
 
         if (settings.Processing is null

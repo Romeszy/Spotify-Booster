@@ -54,6 +54,46 @@ public sealed class SettingsValidatorTests
         Assert.True(result.IsValid, string.Join(" ", result.Errors));
     }
 
+    [Fact]
+    public void ProfileValidationErrorsUseIndexesWithoutExposingProfileNames()
+    {
+        const string sensitiveProfileName = "PERSONAL-NAME-DO-NOT-LOG";
+        AppSettings settings = ValidCompletedSettings() with
+        {
+            Profiles =
+            [
+                new AudioProfileSettings
+                {
+                    Name = sensitiveProfileName,
+                    Processing = DirectProcessing(),
+                },
+                new AudioProfileSettings
+                {
+                    Name = sensitiveProfileName,
+                    Processing = DirectProcessing() with
+                    {
+                        Mode = AudioProtectionMode.RawExpert,
+                        MainGainDb = 75.5,
+                    },
+                },
+            ],
+        };
+
+        SettingsValidationResult result = SettingsValidator.Validate(settings);
+        string diagnostics = string.Join(" ", result.Errors);
+
+        Assert.False(result.IsValid);
+        Assert.Contains("Profiles[1].Name", diagnostics, StringComparison.Ordinal);
+        Assert.Contains(
+            "Profiles[1].Processing.MainGainDb",
+            diagnostics,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            sensitiveProfileName,
+            diagnostics,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(AudioProtectionMode.Direct, -0.01, 25)]
     [InlineData(AudioProtectionMode.Direct, 14.01, 25)]

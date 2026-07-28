@@ -32,7 +32,7 @@ implémentés.
 
 | Menace | Contrôle Phase A | Risque restant |
 | --- | --- | --- |
-| IDOR entre A et B | bearer par requête, subject comparé, RLS owner-only | E2E final intégré à rafraîchir |
+| IDOR entre A et B | bearer par requête, subject comparé, RLS owner-only, E2E RPC TLS A/B réussi lors du gate actuel | preuve à rejouer après toute modification des policies ou RPC |
 | JWT forgé | `RS256`/`ES256`, issuer/audience/temps/sub validés | custody production différée |
 | tempête de `kid` | cache 10 min, single-flight, cooldown 60 s | cooldown par processus |
 | complétion JWKS tardive | epoch/generation et résultat stale ignoré | supervision production absente |

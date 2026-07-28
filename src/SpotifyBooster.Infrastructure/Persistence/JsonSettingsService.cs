@@ -10,6 +10,8 @@ namespace SpotifyBooster.Infrastructure.Persistence;
 public sealed class JsonSettingsService : ISettingsService
 {
     private const long MaximumSettingsFileBytes = 1_048_576;
+    private static readonly EventId SettingsLoadFailed =
+        new(1_001, nameof(SettingsLoadFailed));
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
         AllowTrailingCommas = false,
@@ -184,7 +186,11 @@ public sealed class JsonSettingsService : ISettingsService
             or InvalidDataException)
         {
             const string message = "Configuration invalide ou illisible ; paramètres sûrs par défaut utilisés.";
-            logger.LogWarning(exception, "{Message}", message);
+            logger.LogWarning(
+                SettingsLoadFailed,
+                "{Message} Catégorie : {FailureCategory}.",
+                message,
+                GetFailureCategory(exception));
             errorSink.Report("Configuration", message);
             return new AppSettings();
         }
@@ -254,6 +260,16 @@ public sealed class JsonSettingsService : ISettingsService
         {
         }
     }
+
+    private static string GetFailureCategory(Exception exception) =>
+        exception switch
+        {
+            JsonException => "json",
+            InvalidDataException => "validation",
+            UnauthorizedAccessException => "accès",
+            IOException => "entrée-sortie",
+            _ => "inconnue",
+        };
 
     private static int ReadSchemaVersion(JsonElement root)
     {
