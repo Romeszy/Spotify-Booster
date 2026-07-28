@@ -3,6 +3,7 @@
     <TargetFramework>net8.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\SpotifyBooster.Core\SpotifyBooster.Core.csproj" />
     <ProjectReference Include="..\SpotifyBooster.Contracts\SpotifyBooster.Contracts.csproj" />
   </ItemGroup>
 </Project>

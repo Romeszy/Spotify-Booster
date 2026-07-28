@@ -5,9 +5,9 @@ Date de mise à jour : 28 juillet 2026.
 ## Synthèse
 
 Spotify Booster possède un desktop audio WPF testable et une fondation
-commerciale Phase A en cours d’intégration finale. Les implémentations API,
-Auth, base/RLS et DSP/V3 existent. Aucun environnement commercial ou paiement
-réel n’est livré.
+commerciale Phase A intégrée dans la solution. Les implémentations API, Auth,
+base/RLS et DSP/V3 existent. Aucun environnement commercial ou paiement réel
+n’est livré.
 
 ## Opérationnel et vérifié par voie
 
@@ -16,14 +16,15 @@ réel n’est livré.
 | Desktop/Audio | énumération, route, moteur, métriques, récupération | Audio `27` tests |
 | DSP | pipeline modulaire, stabilité numérique, `+75 dB` | DSP `88` tests |
 | Core/Infrastructure | validation V3, migration V1/V2, persistance | Core `86` tests |
-| API | JWT/JWKS, `/health/*`, `/v1/me`, rate limiting, métriques | API `35` tests |
-| Auth | contrats, appels Supabase, refresh/logout, redaction | Auth `27` tests |
-| Tooling Node | bootstrap/assets locaux | Node `10` tests |
-| PostgreSQL/RLS | schéma, grants, policies, triggers, RPC | pgTAP `85` assertions |
+| API | JWT/JWKS, `/health/*`, `/v1/me`, rate limiting, métriques | API `72` tests |
+| Auth | contrats, appels Supabase, refresh/logout, redaction | Auth `39` tests |
+| Tooling Node | bootstrap/assets locaux | Node `11` tests, lint réussi, audit `0` |
+| PostgreSQL/RLS | schéma, grants, policies, triggers, RPC | plan pgTAP `94`, exécution locale à rejouer |
 
-Ces nombres proviennent de voies séparées et ne doivent pas être additionnés.
-Le total final, le build global et les audits seront écrits après le gate
-d’intégration sur la branche de livraison.
+Le build Release des 13 projets réussit sans avertissement et le test complet
+de la solution réussit `312/312`. La restauration verrouillée passe. Le reset,
+le lint PostgreSQL, pgTAP et les contrôles E2E locaux restent exclus de ce
+résultat tant que le certificat TLS local n’a pas reçu une confiance explicite.
 
 ## Implémenté Phase A
 
@@ -65,7 +66,7 @@ d’intégration sur la branche de livraison.
 - endurance audio et débranchement/reconnexion ;
 - machine propre, installation/désinstallation ;
 - DPI 125/150 %, clavier et Narrateur ;
-- gate intégré .NET, Node, reset/lint/pgTAP, E2E Auth/RLS et scans.
+- reset/lint/pgTAP, E2E Auth/RLS et scans avec la stack locale TLS.
 
 ## Risques
 
@@ -79,7 +80,6 @@ d’intégration sur la branche de livraison.
 
 ## Prochaine étape
 
-Intégrer toutes les voies dans la solution, exécuter la checklist Phase A,
-corriger les findings indépendants, mettre à jour les totaux réels, puis
-seulement créer et pousser le commit final. La Phase B commencera par une ADR
-Stripe et le writer privilégié; elle ne doit pas être amorcée dans ce gate.
+Rejouer la stack locale TLS, reset/lint/pgTAP et les contrôles E2E Auth/RLS,
+puis exécuter la checklist manuelle Phase A. La Phase B commencera par une ADR
+Stripe et le writer privilégié ; elle ne doit pas être amorcée dans ce gate.

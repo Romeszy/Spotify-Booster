@@ -35,15 +35,17 @@ La Phase A ne fournit pas Stripe, abonnement Pro réel, écrans de compte WPF,
 stockage DPAPI, licence hors ligne, updater, mise à jour obligatoire,
 Authenticode, environnement de production ou release commerciale.
 
-L’intégration finale de toutes les voies Phase A reste à valider. Les preuves
-les plus récentes par voie ne constituent pas encore un total de release :
+Le build d’intégration Release des 13 projets réussit sans avertissement. Le
+test complet de la solution réussit `312/312` :
 
 - desktop : Audio `27`, DSP `88` et Core/Infrastructure `86` tests ;
-- fondation réseau : API `35` et Auth `27` tests ;
-- tooling backend : Node `10` tests ;
-- base locale : pgTAP `85` assertions, reset et lint réussis.
+- fondation réseau : API `72` et Auth `39` tests ;
+- tooling backend : Node `11` tests, lint syntaxique réussi et audit npm à
+  `0` vulnérabilité.
 
-Les compteurs finaux seront remplacés par ceux du gate d’intégration.
+La suite pgTAP déclare `94` assertions. Son exécution, le reset et le lint de
+la base restent à rejouer après confiance explicite du certificat TLS local ;
+ils ne font donc pas partie du résultat d’intégration ci-dessus.
 
 ## Fonctionnalités desktop
 
