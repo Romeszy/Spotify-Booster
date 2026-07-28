@@ -97,6 +97,28 @@ public sealed class EndpointIntegrationTests
         Assert.DoesNotContain("token-", problem, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("HS256", null, null, 5, true)]
+    [InlineData("RS256", "https://evil.example/auth/v1", null, 5, true)]
+    [InlineData("RS256", null, "wrong", 5, true)]
+    [InlineData("RS256", null, null, -2, true)]
+    [InlineData("RS256", null, null, 5, false)]
+    public async Task HostedPipelineRejectsEveryJwtContractViolation(string algorithm,
+        string? issuer, string? audience, int expiryMinutes, bool includeSubject)
+    {
+        await using var factory = new AuthenticatedFactory();
+        using var client = factory.CreateClient();
+        var token = factory.Token(algorithm, factory.Subject, issuer: issuer,
+            audience: audience, expiration: DateTimeOffset.UtcNow.AddMinutes(expiryMinutes),
+            includeSubject: includeSubject);
+        using var response = await client.SendAsync(Bearer("/v1/me", token),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        var problem = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.DoesNotContain(token, problem, StringComparison.Ordinal);
+        Assert.DoesNotContain("evil.example", problem, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task HostedRateLimiterReturnsExpurgated429()
     {
@@ -117,6 +139,45 @@ public sealed class EndpointIntegrationTests
         var body = await rejected.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         Assert.DoesNotContain(factory.Subject.ToString(), body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(token, body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task HostedRateLimiterPartitionsSubjectsAndInvalidIdentity()
+    {
+        await using var factory = new AuthenticatedFactory();
+        using var client = factory.CreateClient();
+        var subjectB = Guid.NewGuid();
+        foreach (var subject in new[] { factory.Subject, subjectB })
+            for (var i = 0; i < 30; i++)
+            {
+                using var allowed = await client.SendAsync(Bearer("/v1/me",
+                    factory.Token("RS256", subject)), TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+            }
+        for (var i = 0; i < 10; i++)
+        {
+            using var unauthorized = await client.SendAsync(Bearer("/v1/me", "malformed"),
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Unauthorized, unauthorized.StatusCode);
+        }
+        using var limited = await client.SendAsync(Bearer("/v1/me", "malformed"),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+    }
+
+    [Fact]
+    public async Task GlobalProblemDetailsRedactsUnexpectedDataApiFailure()
+    {
+        await using var factory = new AuthenticatedFactory { ThrowUnexpectedDataApi = true };
+        using var client = factory.CreateClient();
+        var token = factory.Token("RS256", factory.Subject);
+        using var response = await client.SendAsync(Bearer("/v1/me", token),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        var problem = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.DoesNotContain("private-database-host", problem, StringComparison.Ordinal);
+        Assert.DoesNotContain(token, problem, StringComparison.Ordinal);
+        Assert.DoesNotContain("stack", problem, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -169,6 +230,7 @@ public sealed class EndpointIntegrationTests
         public Guid Subject { get; } = Guid.NewGuid();
         public bool ReturnMismatchedSubject { get; set; }
         public bool HealthReady { get; set; }
+        public bool ThrowUnexpectedDataApi { get; set; }
         public int JwksCalls => Volatile.Read(ref _jwksCalls);
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -206,7 +268,11 @@ public sealed class EndpointIntegrationTests
                     : JsonResponse(HttpStatusCode.ServiceUnavailable, "{}"));
             if (path.EndsWith("/spotify_booster_me_v1", StringComparison.Ordinal))
             {
-                var subject = ReturnMismatchedSubject ? Guid.NewGuid() : Subject;
+                if (ThrowUnexpectedDataApi)
+                    return Task.FromException<HttpResponseMessage>(
+                        new InvalidOperationException("private-database-host"));
+                var subject = ReturnMismatchedSubject ? Guid.NewGuid() :
+                    SubjectFromBearer(request) ?? Subject;
                 return Task.FromResult(JsonResponse(HttpStatusCode.OK, JsonSerializer.Serialize(new
                 {
                     userId = subject,
@@ -221,7 +287,8 @@ public sealed class EndpointIntegrationTests
         }
 
         public string Token(string algorithm, Guid subject, DateTimeOffset? notBefore = null,
-            RSA? signer = null, ECDsa? ecSigner = null)
+            RSA? signer = null, ECDsa? ecSigner = null, string? issuer = null,
+            string? audience = null, DateTimeOffset? expiration = null, bool includeSubject = true)
         {
             var header = Encode(JsonSerializer.SerializeToUtf8Bytes(new
             {
@@ -231,11 +298,11 @@ public sealed class EndpointIntegrationTests
             }));
             var claims = new Dictionary<string, object?>
             {
-                ["iss"] = "https://127.0.0.1:54321/auth/v1",
-                ["aud"] = "authenticated",
-                ["sub"] = subject.ToString(),
-                ["exp"] = DateTimeOffset.UtcNow.AddMinutes(5).ToUnixTimeSeconds()
+                ["iss"] = issuer ?? "https://127.0.0.1:54321/auth/v1",
+                ["aud"] = audience ?? "authenticated",
+                ["exp"] = (expiration ?? DateTimeOffset.UtcNow.AddMinutes(5)).ToUnixTimeSeconds()
             };
+            if (includeSubject) claims["sub"] = subject.ToString();
             if (notBefore is not null) claims["nbf"] = notBefore.Value.ToUnixTimeSeconds();
             var payload = Encode(JsonSerializer.SerializeToUtf8Bytes(claims));
             var input = Encoding.ASCII.GetBytes(header + "." + payload);
@@ -260,6 +327,18 @@ public sealed class EndpointIntegrationTests
                         x = Encode(ec.Q.X!), y = Encode(ec.Q.Y!) }
                 }
             });
+        }
+
+        private static Guid? SubjectFromBearer(HttpRequestMessage request)
+        {
+            var token = request.Headers.Authorization?.Parameter;
+            var parts = token?.Split('.');
+            if (parts?.Length != 3) return null;
+            var value = parts[1].Replace('-', '+').Replace('_', '/');
+            value += new string('=', (4 - value.Length % 4) % 4);
+            using var document = JsonDocument.Parse(Convert.FromBase64String(value));
+            return document.RootElement.TryGetProperty("sub", out var subject) &&
+                Guid.TryParse(subject.GetString(), out var parsed) ? parsed : null;
         }
 
         protected override void Dispose(bool disposing)

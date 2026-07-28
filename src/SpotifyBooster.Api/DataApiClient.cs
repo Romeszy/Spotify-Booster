@@ -9,6 +9,7 @@ namespace SpotifyBooster.Api;
 public sealed class DataApiClient
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly string[] MetricOperations = ["profile", "entitlement"];
     private readonly HttpClient _http;
     private readonly SupabaseApiOptions _options;
     private readonly ApiMetrics _metrics;
@@ -63,12 +64,16 @@ public sealed class DataApiClient
         catch (HttpRequestException) { result = "5xx"; throw new DataApiException("Data API transport failed."); }
         catch (JsonException) { result = "5xx"; throw new DataApiException("Data API response invalid."); }
         catch (InvalidDataException) { result = "5xx"; throw new DataApiException("Data API response invalid."); }
+        catch (IOException) { result = "5xx"; throw new DataApiException("Data API response invalid."); }
         catch (NotSupportedException) { result = "5xx"; throw new DataApiException("Data API response invalid."); }
         finally
         {
-            _metrics.DataApiRequests.Add(1, new("operation", "profile"), new("result", result));
-            _metrics.DataApiDuration.Record(Stopwatch.GetElapsedTime(started).TotalSeconds,
-                new("operation", "profile"), new("result", result));
+            var duration = Stopwatch.GetElapsedTime(started).TotalSeconds;
+            foreach (var operation in MetricOperations)
+            {
+                _metrics.DataApiRequests.Add(1, new("operation", operation), new("result", result));
+                _metrics.DataApiDuration.Record(duration, new("operation", operation), new("result", result));
+            }
         }
     }
 

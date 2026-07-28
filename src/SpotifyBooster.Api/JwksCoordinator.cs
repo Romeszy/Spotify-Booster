@@ -256,6 +256,9 @@ public sealed class JwksCoordinator : IDisposable
         catch (HttpRequestException) { return FetchResult.Failure("http_error"); }
         catch (JsonException) { return FetchResult.Failure("invalid_document"); }
         catch (InvalidDataException) { return FetchResult.Failure("invalid_document"); }
+        catch (IOException) { return FetchResult.Failure("invalid_document"); }
+        catch (NotSupportedException) { return FetchResult.Failure("invalid_document"); }
+        catch (ObjectDisposedException) { return FetchResult.Failure("invalid_document"); }
         catch (CryptographicException) { return FetchResult.Failure("invalid_document"); }
         catch (FormatException) { return FetchResult.Failure("invalid_document"); }
     }
@@ -317,6 +320,7 @@ public sealed class JwksCoordinator : IDisposable
         SetReadinessLocked(false);
         _generation = CheckedIncrement(_generation);
         _attemptedGeneration = false;
+        _ = CreateAttemptLocked(JwksTrigger.Expiry, now);
     }
 
     private void InvalidateAttemptLocked(string decision)

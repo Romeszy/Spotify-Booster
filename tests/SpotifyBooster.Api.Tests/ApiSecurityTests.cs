@@ -186,6 +186,99 @@ public sealed class ApiSecurityTests : IDisposable
     }
 
     [Fact]
+    public async Task ContentIOExceptionCompletesLeaderAndAllJoiners()
+    {
+        var calls = 0;
+        using var coordinator = Coordinator((_, _) =>
+        {
+            Interlocked.Increment(ref calls);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ThrowingContent(new IOException("private-content"))
+            });
+        });
+        var requests = Enumerable.Range(0, 100)
+            .Select(_ => coordinator.FindAsync("missing", TestContext.Current.CancellationToken))
+            .ToArray();
+        var results = await Task.WhenAll(requests).WaitAsync(TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+        Assert.All(results, Assert.Null);
+        Assert.Equal(1, calls);
+        Assert.False(coordinator.IsReady);
+    }
+
+    [Fact]
+    public async Task IsReadyExpirationPublishesMandatoryExpiryLeader()
+    {
+        var calls = 0;
+        var expiryStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var expiryResponse = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var coordinator = Coordinator((_, _) =>
+        {
+            if (Interlocked.Increment(ref calls) == 1)
+                return Task.FromResult(Json(HttpStatusCode.OK, RsaJwks("old")));
+            expiryStarted.SetResult();
+            return expiryResponse.Task;
+        });
+        using var old = await coordinator.FindAsync("old", TestContext.Current.CancellationToken);
+        _time.Advance(TimeSpan.FromMinutes(10));
+        Assert.False(coordinator.IsReady);
+        await expiryStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(2, calls);
+        var joiner = coordinator.FindAsync("new", TestContext.Current.CancellationToken);
+        expiryResponse.SetResult(Json(HttpStatusCode.OK, RsaJwks("new")));
+        using var current = await joiner;
+        Assert.NotNull(current);
+        Assert.True(coordinator.IsReady);
+    }
+
+    [Fact]
+    public async Task RetryGateIsClosedUntilExactSixtySecondBoundary()
+    {
+        var calls = 0;
+        using var coordinator = Coordinator((_, _) =>
+        {
+            Interlocked.Increment(ref calls);
+            return Task.FromResult(Json(HttpStatusCode.ServiceUnavailable, "{}"));
+        });
+        Assert.Null(await coordinator.FindAsync("missing", TestContext.Current.CancellationToken));
+        Assert.All(await Task.WhenAll(Enumerable.Range(0, 100).Select(index =>
+            coordinator.FindAsync($"missing-{index}", TestContext.Current.CancellationToken))), Assert.Null);
+        Assert.Equal(1, calls);
+        _time.Advance(TimeSpan.FromSeconds(59.999));
+        Assert.Null(await coordinator.FindAsync("still-closed", TestContext.Current.CancellationToken));
+        Assert.Equal(1, calls);
+        _time.Advance(TimeSpan.FromMilliseconds(1));
+        Assert.Null(await coordinator.FindAsync("boundary", TestContext.Current.CancellationToken));
+        Assert.Equal(2, calls);
+    }
+
+    [Fact]
+    public async Task HundredExpiryObserversShareOneMandatoryLeader()
+    {
+        var calls = 0;
+        var expiry = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var coordinator = Coordinator((_, _) =>
+        {
+            if (Interlocked.Increment(ref calls) == 1)
+                return Task.FromResult(Json(HttpStatusCode.OK, RsaJwks("old")));
+            return expiry.Task;
+        });
+        using var old = await coordinator.FindAsync("old", TestContext.Current.CancellationToken);
+        _time.Advance(TimeSpan.FromMinutes(10));
+        Assert.False(coordinator.IsReady);
+        var observers = Enumerable.Range(0, 100)
+            .Select(_ => coordinator.FindAsync("new", TestContext.Current.CancellationToken)).ToArray();
+        expiry.SetResult(Json(HttpStatusCode.OK, RsaJwks("new")));
+        var keys = await Task.WhenAll(observers);
+        Assert.All(keys, Assert.NotNull);
+        foreach (var key in keys) key!.Dispose();
+        Assert.Equal(2, calls);
+    }
+
+    [Fact]
     public async Task ExpiryDetachesOldUnknownAttemptAndCompletesItsJoiners()
     {
         var calls = 0;
@@ -229,6 +322,36 @@ public sealed class ApiSecurityTests : IDisposable
         Assert.True(limiter.Acquire("sub:b", 30).Allowed);
         _time.Advance(TimeSpan.FromSeconds(60));
         Assert.True(limiter.Acquire("sub:a", 30).Allowed);
+    }
+
+    [Fact]
+    public void LimiterCapacityNeverEvictsAnActiveWindow()
+    {
+        var limiter = new FixedWindowLimiter(_time);
+        for (var i = 0; i < 4096; i++)
+            Assert.True(limiter.Acquire($"partition:{i}", 30).Allowed);
+        var capacity = limiter.Acquire("partition:4096", 30);
+        Assert.False(capacity.Allowed);
+        Assert.True(capacity.CapacityExceeded);
+        for (var i = 1; i < 30; i++)
+            Assert.True(limiter.Acquire("partition:0", 30).Allowed);
+        Assert.False(limiter.Acquire("partition:0", 30).Allowed);
+        _time.Advance(TimeSpan.FromSeconds(60));
+        Assert.True(limiter.Acquire("partition:4096", 30).Allowed);
+    }
+
+    [Fact]
+    public void RetryAfterTracksBeginningMiddleAndFinalWindowInstant()
+    {
+        var limiter = new FixedWindowLimiter(_time);
+        Assert.True(limiter.Acquire("partition", 1).Allowed);
+        Assert.Equal(60, limiter.Acquire("partition", 1).RetryAfterSeconds);
+        _time.Advance(TimeSpan.FromSeconds(30));
+        Assert.Equal(30, limiter.Acquire("partition", 1).RetryAfterSeconds);
+        _time.Advance(TimeSpan.FromSeconds(29.5));
+        Assert.Equal(1, limiter.Acquire("partition", 1).RetryAfterSeconds);
+        _time.Advance(TimeSpan.FromMilliseconds(500));
+        Assert.True(limiter.Acquire("partition", 1).Allowed);
     }
 
     [Fact]
@@ -319,6 +442,42 @@ public sealed class ApiSecurityTests : IDisposable
     }
 
     [Fact]
+    public async Task JwksHttpRedirectInvalidAndOversizedDocumentsFailClosed()
+    {
+        var cases = new Func<HttpResponseMessage>[]
+        {
+            () => new(HttpStatusCode.Redirect),
+            () => Json(HttpStatusCode.InternalServerError, "{}"),
+            () => Json(HttpStatusCode.OK, "{invalid"),
+            () => Json(HttpStatusCode.OK, new string('x', 300_000))
+        };
+        foreach (var response in cases)
+        {
+            using var coordinator = Coordinator((_, _) => Task.FromResult(response()));
+            Assert.Null(await coordinator.FindAsync("missing", TestContext.Current.CancellationToken));
+            Assert.False(coordinator.IsReady);
+        }
+    }
+
+    [Fact]
+    public async Task RotationOverlapAcceptsBothKeysThenRejectsRetiredKey()
+    {
+        var calls = 0;
+        using var coordinator = Coordinator((_, _) => Task.FromResult(Json(HttpStatusCode.OK,
+            Interlocked.Increment(ref calls) == 1
+                ? RsaJwks("old", "new")
+                : RsaJwks("new"))));
+        using var old = await coordinator.FindAsync("old", TestContext.Current.CancellationToken);
+        using var newDuringOverlap = await coordinator.FindAsync("new", TestContext.Current.CancellationToken);
+        Assert.NotNull(old);
+        Assert.NotNull(newDuringOverlap);
+        await coordinator.PurgeAsync(TestContext.Current.CancellationToken);
+        using var current = await coordinator.FindAsync("new", TestContext.Current.CancellationToken);
+        Assert.NotNull(current);
+        Assert.Null(await coordinator.FindAsync("old", TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task ReadinessProbeRequiresExactThreePropertyDocumentAndNoBearer()
     {
         HttpRequestMessage? observed = null;
@@ -347,6 +506,68 @@ public sealed class ApiSecurityTests : IDisposable
         var state = new ReadinessState(_time, _metrics);
         var probe = new DataApiReadinessProbe(client, Options(), state, _time);
         Assert.False(await probe.ProbeAsync(TestContext.Current.CancellationToken));
+        Assert.False(state.IsDataApiReady);
+    }
+
+    [Fact]
+    public async Task ReadinessFailureMatrixAlwaysFailsClosed()
+    {
+        var cases = new (HttpStatusCode Status, string Body)[]
+        {
+            (HttpStatusCode.ServiceUnavailable, "{}"),
+            (HttpStatusCode.Redirect, "{}"),
+            (HttpStatusCode.OK, """{"service":"spotify-booster-data","status":"ok"}"""),
+            (HttpStatusCode.OK, """{"service":"spotify-booster-data","status":"bad","version":1}"""),
+            (HttpStatusCode.OK, "{invalid"),
+            (HttpStatusCode.OK, new string('x', 257))
+        };
+        foreach (var item in cases)
+        {
+            using var client = new HttpClient(new Handler((_, _) =>
+                Task.FromResult(Json(item.Status, item.Body))));
+            var state = new ReadinessState(_time, _metrics);
+            var probe = new DataApiReadinessProbe(client, Options(), state, _time);
+            Assert.False(await probe.ProbeAsync(TestContext.Current.CancellationToken));
+        }
+    }
+
+    [Fact]
+    public async Task HostedReadinessProbeRunsImmediatelyAndEveryThirtySeconds()
+    {
+        var calls = 0;
+        using var client = new HttpClient(new Handler((_, _) =>
+        {
+            Interlocked.Increment(ref calls);
+            return Task.FromResult(Json(HttpStatusCode.OK,
+                """{"service":"spotify-booster-data","status":"ok","version":1}"""));
+        }));
+        var state = new ReadinessState(_time, _metrics);
+        var probe = new DataApiReadinessProbe(client, Options(), state, _time);
+        using var hosted = new DataApiReadinessHostedService(probe, _time);
+        await hosted.StartAsync(TestContext.Current.CancellationToken);
+        await WaitUntilAsync(() => Volatile.Read(ref calls) == 1);
+        _time.Advance(TimeSpan.FromSeconds(29));
+        await Task.Yield();
+        Assert.Equal(1, calls);
+        _time.Advance(TimeSpan.FromSeconds(1));
+        await WaitUntilAsync(() => Volatile.Read(ref calls) == 2);
+        await hosted.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task ReadinessTimeoutAtTwoSecondsFailsClosed()
+    {
+        using var client = new HttpClient(new Handler(async (_, cancellationToken) =>
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return Json(HttpStatusCode.OK, "{}");
+        }));
+        var state = new ReadinessState(_time, _metrics);
+        var probe = new DataApiReadinessProbe(client, Options(), state, _time);
+        var result = probe.ProbeAsync(TestContext.Current.CancellationToken);
+        _time.Advance(TimeSpan.FromSeconds(2));
+        Assert.False(await result.WaitAsync(TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken));
         Assert.False(state.IsDataApiReady);
     }
 
@@ -407,6 +628,130 @@ public sealed class ApiSecurityTests : IDisposable
         Assert.Contains(("readiness_transitions_total", "dependency=data_api|to=unready"), counters);
     }
 
+    [Fact]
+    public async Task DataApiMetricsUseOnlyProfileAndEntitlementOperations()
+    {
+        var labels = new List<string>();
+        using var metrics = new ApiMetrics();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, current) =>
+        {
+            if (instrument.Name == "data_api_requests_total")
+                current.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((_, _, tags, _) =>
+            labels.Add(string.Join("|", tags.ToArray().OrderBy(static tag => tag.Key)
+                .Select(static tag => $"{tag.Key}={tag.Value}"))));
+        listener.Start();
+        var subject = Guid.NewGuid();
+        using var client = new HttpClient(new Handler((_, _) => Task.FromResult(Json(HttpStatusCode.OK,
+            JsonSerializer.Serialize(new
+            {
+                userId = subject,
+                displayName = (string?)null,
+                plan = "free",
+                status = "active",
+                revision = 1,
+                features = Array.Empty<string>()
+            })))));
+        await new DataApiClient(client, Options(), metrics).GetMeAsync(subject, "token",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(2, labels.Count);
+        Assert.Contains("operation=profile|result=success", labels);
+        Assert.Contains("operation=entitlement|result=success", labels);
+    }
+
+    [Fact]
+    public async Task MetricsCoverEveryJwksTriggerWithClosedLabels()
+    {
+        var labels = new List<string>();
+        using var metrics = new ApiMetrics();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, current) =>
+        {
+            if (instrument.Name == "jwks_refresh_total")
+                current.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((_, _, tags, _) =>
+            labels.Add(string.Join("|", tags.ToArray().OrderBy(static tag => tag.Key)
+                .Select(static tag => $"{tag.Key}={tag.Value}"))));
+        listener.Start();
+        var calls = 0;
+        using var client = new HttpClient(new Handler((_, _) =>
+        {
+            var call = Interlocked.Increment(ref calls);
+            return Task.FromResult(call <= 3
+                ? Json(HttpStatusCode.OK, RsaJwks("known"))
+                : Json(HttpStatusCode.ServiceUnavailable, "{}"));
+        }));
+        using var coordinator = new JwksCoordinator(client, Options(), _time, metrics);
+        using (await coordinator.FindAsync("known", TestContext.Current.CancellationToken)) { }
+        _time.Advance(TimeSpan.FromSeconds(60));
+        Assert.Null(await coordinator.FindAsync("unknown", TestContext.Current.CancellationToken));
+        await coordinator.PurgeAsync(TestContext.Current.CancellationToken);
+        _time.Advance(TimeSpan.FromMinutes(10));
+        Assert.False(coordinator.IsReady);
+        Assert.Null(await coordinator.FindAsync("expiry", TestContext.Current.CancellationToken));
+        _time.Advance(TimeSpan.FromSeconds(60));
+        Assert.Null(await coordinator.FindAsync("retry", TestContext.Current.CancellationToken));
+        Assert.Contains("result=success|trigger=cold_start", labels);
+        Assert.Contains("result=success|trigger=unknown_kid", labels);
+        Assert.Contains("result=success|trigger=admin_purge", labels);
+        Assert.Contains("result=http_error|trigger=expiry", labels);
+        Assert.Contains("result=http_error|trigger=retry", labels);
+        Assert.All(labels, label => Assert.Matches(
+            "^result=(success|timeout|http_error|invalid_document|invalidated)\\|" +
+            "trigger=(cold_start|expiry|retry|unknown_kid|admin_purge)$", label));
+    }
+
+    [Fact]
+    public async Task CacheAgeAndRetryCooldownGaugesRespectExactBoundaries()
+    {
+        var cacheAges = new List<double>();
+        var cooldowns = new List<double>();
+        using var metrics = new ApiMetrics();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, current) =>
+        {
+            if (instrument.Name is "jwks_cache_age_seconds" or
+                "jwks_retry_cooldown_remaining_seconds")
+                current.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<double>((instrument, value, _, _) =>
+        {
+            if (instrument.Name == "jwks_cache_age_seconds") cacheAges.Add(value);
+            else cooldowns.Add(value);
+        });
+        listener.Start();
+        var calls = 0;
+        using var client = new HttpClient(new Handler((_, _) =>
+            Task.FromResult(Interlocked.Increment(ref calls) == 1
+                ? Json(HttpStatusCode.OK, RsaJwks("known"))
+                : Json(HttpStatusCode.ServiceUnavailable, "{}"))));
+        using var coordinator = new JwksCoordinator(client, Options(), _time, metrics);
+        listener.RecordObservableInstruments();
+        Assert.Empty(cacheAges);
+        using var known = await coordinator.FindAsync("known", TestContext.Current.CancellationToken);
+        listener.RecordObservableInstruments();
+        _time.Advance(TimeSpan.FromSeconds(30));
+        listener.RecordObservableInstruments();
+        Assert.Equal(0, cacheAges[0], 3);
+        Assert.Equal(30, cacheAges[1], 3);
+        _time.Advance(TimeSpan.FromSeconds(570));
+        Assert.False(coordinator.IsReady);
+        Assert.Null(await coordinator.FindAsync("missing", TestContext.Current.CancellationToken));
+        var cacheMeasurements = cacheAges.Count;
+        listener.RecordObservableInstruments();
+        Assert.Equal(cacheMeasurements, cacheAges.Count);
+        Assert.Contains(cooldowns, value => Math.Abs(value - 60) < 0.001);
+        _time.Advance(TimeSpan.FromSeconds(30));
+        listener.RecordObservableInstruments();
+        Assert.Contains(cooldowns, value => Math.Abs(value - 30) < 0.001);
+        _time.Advance(TimeSpan.FromSeconds(30));
+        listener.RecordObservableInstruments();
+        Assert.Contains(cooldowns, value => Math.Abs(value) < 0.001);
+    }
+
     [Theory]
     [InlineData("http://127.0.0.1:54321/")]
     [InlineData("https://localhost:54321/")]
@@ -452,12 +797,21 @@ public sealed class ApiSecurityTests : IDisposable
         Issuer = "https://project.supabase.co/auth/v1",
         Audience = "authenticated"
     };
-    private string RsaJwks(string kid)
+    private string RsaJwks(params string[] kids)
     {
         var p = _rsa.ExportParameters(false);
         return JsonSerializer.Serialize(new
         {
-            keys = new[] { new { kty = "RSA", use = "sig", alg = "RS256", kid, n = Encode(p.Modulus!), e = Encode(p.Exponent!) } }
+            keys = kids.Select(kid =>
+                new
+                {
+                    kty = "RSA",
+                    use = "sig",
+                    alg = "RS256",
+                    kid,
+                    n = Encode(p.Modulus!),
+                    e = Encode(p.Exponent!)
+                }).ToArray()
         });
     }
     private string EcJwks(string kid)
@@ -503,12 +857,28 @@ public sealed class ApiSecurityTests : IDisposable
         foreach (var header in request.Headers) clone.Headers.TryAddWithoutValidation(header.Key, header.Value);
         return clone;
     }
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (var attempt = 0; attempt < 100 && !condition(); attempt++)
+            await Task.Delay(1, TestContext.Current.CancellationToken);
+        Assert.True(condition());
+    }
     public void Dispose() { _rsa.Dispose(); _ec.Dispose(); _metrics.Dispose(); }
 
     private sealed class Handler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             send(request, cancellationToken);
+    }
+    private sealed class ThrowingContent(Exception exception) : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+            Task.FromException(exception);
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
     }
     private sealed class FakeTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {

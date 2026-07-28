@@ -23,7 +23,16 @@ public sealed class FixedWindowLimiter
                 _time.GetElapsedTime(entry.StartedAt, now) >= TimeSpan.FromSeconds(60))
             {
                 if (!_entries.ContainsKey(partition) && _entries.Count >= MaximumPartitions)
-                    EvictOldestLocked();
+                {
+                    RemoveExpiredLocked(now);
+                    if (_entries.Count >= MaximumPartitions)
+                    {
+                        var retry = _entries.Count == 0 ? 1 : Math.Clamp((int)Math.Ceiling(
+                            (TimeSpan.FromSeconds(60) - _time.GetElapsedTime(
+                                _entries.Values.Min(static value => value.StartedAt), now)).TotalSeconds), 1, 60);
+                        return new(false, retry, CapacityExceeded: true);
+                    }
+                }
                 entry = new(now, 0);
             }
             if (entry.Count >= permitLimit)
@@ -45,17 +54,10 @@ public sealed class FixedWindowLimiter
             _entries.Remove(key);
     }
 
-    private void EvictOldestLocked()
-    {
-        var oldest = _entries.MinBy(static pair => pair.Value.StartedAt);
-        if (!oldest.Equals(default(KeyValuePair<string, Entry>)))
-            _entries.Remove(oldest.Key);
-    }
-
     private sealed record Entry(long StartedAt, int Count);
 }
 
-public sealed record RateLimitDecision(bool Allowed, int RetryAfterSeconds);
+public sealed record RateLimitDecision(bool Allowed, int RetryAfterSeconds, bool CapacityExceeded = false);
 
 public sealed class ApiRateLimitingMiddleware(RequestDelegate next)
 {

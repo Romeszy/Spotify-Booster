@@ -133,6 +133,187 @@ public sealed class SupabaseAuthenticationServiceTests
         Assert.Null(await store.ReadAsync(TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task SignOutEpochPreventsLateSignInFromRestoringSession()
+    {
+        var signInStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSignIn = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var store = new InMemoryAuthSessionStore();
+        await store.WriteAsync(Session(), TestContext.Current.CancellationToken);
+        var service = Create((request, _) =>
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/token", StringComparison.Ordinal))
+            {
+                signInStarted.SetResult();
+                return releaseSignIn.Task;
+            }
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent));
+        }, store);
+        var signIn = service.SignInAsync(new("u@example.test", "0123456789"),
+            TestContext.Current.CancellationToken);
+        await signInStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(RemoteRevocation.Succeeded,
+            (await service.SignOutAsync(TestContext.Current.CancellationToken)).RemoteRevocation);
+        releaseSignIn.SetResult(Json(HttpStatusCode.OK, SessionJson));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => signIn);
+        Assert.Null(await service.GetSessionAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task SignOutEpochPreventsInFlightRefreshFromPublishing()
+    {
+        var refreshStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseRefresh = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var store = new InMemoryAuthSessionStore();
+        await store.WriteAsync(Session(), TestContext.Current.CancellationToken);
+        var service = Create((request, _) =>
+        {
+            if (request.RequestUri!.Query.Contains("refresh_token", StringComparison.Ordinal))
+            {
+                refreshStarted.SetResult();
+                return releaseRefresh.Task;
+            }
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent));
+        }, store);
+        var refresh = service.RefreshSessionAsync(TestContext.Current.CancellationToken);
+        await refreshStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+        var signOut = service.SignOutAsync(TestContext.Current.CancellationToken);
+        Assert.Null(await service.GetSessionAsync(TestContext.Current.CancellationToken));
+        releaseRefresh.SetResult(Json(HttpStatusCode.OK, SessionJson));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => refresh);
+        Assert.Equal(RemoteRevocation.Succeeded, (await signOut).RemoteRevocation);
+        Assert.Null(await service.GetSessionAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void SharedIdentityHeadersAreRejectedAtConstruction()
+    {
+        var options = ValidOptions();
+        var client = new StrictSupabaseAuthHttpClient(new Handler((_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK))), options);
+        client.DefaultRequestHeaders.TryAddWithoutValidation("apikey", "shared-identity");
+        Assert.Throws<InvalidOperationException>(() =>
+            new SupabaseAuthenticationService(client, options, new InMemoryAuthSessionStore()));
+        client.Dispose();
+    }
+
+    [Fact]
+    public async Task LogoutAcceptsOnlyExactNoContent()
+    {
+        var store = new InMemoryAuthSessionStore();
+        await store.WriteAsync(Session(), TestContext.Current.CancellationToken);
+        var service = Create((_, _) => new(HttpStatusCode.OK), store);
+        Assert.Equal(RemoteRevocation.Failed,
+            (await service.SignOutAsync(TestContext.Current.CancellationToken)).RemoteRevocation);
+        Assert.Null(await store.ReadAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task SignupResendResetAndUpdateUseExpectedAuthContracts()
+    {
+        var requests = new List<HttpRequestMessage>();
+        var store = new InMemoryAuthSessionStore();
+        await store.WriteAsync(Session(), TestContext.Current.CancellationToken);
+        var service = Create((request, _) =>
+        {
+            requests.Add(Clone(request));
+            return Json(HttpStatusCode.OK, SessionJson);
+        }, store);
+        var signup = await service.SignUpAsync(new("u@example.test", "0123456789"),
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(signup);
+        Assert.True(signup.User.EmailVerified);
+        Assert.True(signup.AccessTokenExpiresAt > DateTimeOffset.UtcNow);
+        await service.ResendVerificationAsync("u@example.test", TestContext.Current.CancellationToken);
+        await service.RequestPasswordResetAsync(new("u@example.test"), TestContext.Current.CancellationToken);
+        await service.UpdatePasswordAsync(new("abcdefghij"), TestContext.Current.CancellationToken);
+        Assert.Contains(requests, request => request.RequestUri!.AbsolutePath.EndsWith("/resend",
+            StringComparison.Ordinal));
+        Assert.Contains(requests, request => request.RequestUri!.AbsolutePath.EndsWith("/recover",
+            StringComparison.Ordinal));
+        var update = Assert.Single(requests, request =>
+            request.RequestUri!.AbsolutePath.EndsWith("/user", StringComparison.Ordinal));
+        Assert.Equal("access-token", update.Headers.Authorization!.Parameter);
+    }
+
+    [Fact]
+    public async Task SignupWithoutSessionAndUnverifiedEmailAreRepresentedHonestly()
+    {
+        var existing = Create((_, _) => Json(HttpStatusCode.OK,
+            """{"user":{"id":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","email":"u@example.test"}}"""));
+        Assert.Null(await existing.SignUpAsync(new("u@example.test", "0123456789"),
+            TestContext.Current.CancellationToken));
+
+        var unverifiedJson = JsonSerializer.Serialize(new
+        {
+            access_token = "access-token",
+            refresh_token = "refresh-token",
+            expires_in = 60,
+            user = new { id = UserId, email = "u@example.test", email_confirmed_at = (string?)null }
+        });
+        var unverified = Create((_, _) => Json(HttpStatusCode.OK, unverifiedJson));
+        var session = await unverified.SignUpAsync(new("u@example.test", "0123456789"),
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(session);
+        Assert.False(session.User.EmailVerified);
+    }
+
+    [Fact]
+    public async Task PasswordResetIsGenericForNetworkAndServerFailures()
+    {
+        var network = Create((_, _) =>
+            Task.FromException<HttpResponseMessage>(new HttpRequestException("private-auth-host")));
+        await network.RequestPasswordResetAsync(new("u@example.test"),
+            TestContext.Current.CancellationToken);
+        var server = Create((_, _) => new HttpResponseMessage(HttpStatusCode.InternalServerError));
+        await server.RequestPasswordResetAsync(new("u@example.test"),
+            TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task ExpiredSessionCannotUpdatePassword()
+    {
+        var calls = 0;
+        var store = new InMemoryAuthSessionStore();
+        await store.WriteAsync(Session() with
+        {
+            AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddSeconds(-1)
+        }, TestContext.Current.CancellationToken);
+        var service = Create((_, _) =>
+        {
+            calls++;
+            return Json(HttpStatusCode.OK, SessionJson);
+        }, store);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpdatePasswordAsync(new("abcdefghij"), TestContext.Current.CancellationToken));
+        Assert.Equal(0, calls);
+    }
+
+    [Fact]
+    public async Task AuthenticationTimeoutAndNetworkErrorsAreExpurgated()
+    {
+        var options = ValidOptions() with { Timeout = TimeSpan.FromMilliseconds(10) };
+        var timeoutClient = new StrictSupabaseAuthHttpClient(new Handler(async (_, cancellationToken) =>
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return Json(HttpStatusCode.OK, SessionJson);
+        }), options);
+        var timeout = new SupabaseAuthenticationService(timeoutClient, options,
+            new InMemoryAuthSessionStore());
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            timeout.SignInAsync(new("u@example.test", "0123456789"),
+                TestContext.Current.CancellationToken));
+
+        var network = Create((_, _) =>
+            Task.FromException<HttpResponseMessage>(new HttpRequestException("private-auth-host")));
+        var exception = await Assert.ThrowsAsync<AuthenticationException>(() =>
+            network.SignInAsync(new("u@example.test", "0123456789"),
+                TestContext.Current.CancellationToken));
+        Assert.DoesNotContain("private-auth-host", exception.ToString(), StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("service_role_secret")]
     [InlineData("sb_secret_value")]
@@ -159,10 +340,15 @@ public sealed class SupabaseAuthenticationServiceTests
         Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> handler,
         IAuthSessionStore? store = null)
     {
-        var client = new HttpClient(new Handler(handler));
-        return new(client, new() { BaseUri = new("https://project.supabase.co/"), PublishableKey = "sb_publishable_test" },
-            store ?? new InMemoryAuthSessionStore());
+        var options = ValidOptions();
+        var client = new StrictSupabaseAuthHttpClient(new Handler(handler), options);
+        return new(client, options, store ?? new InMemoryAuthSessionStore());
     }
+    private static SupabaseAuthOptions ValidOptions() => new()
+    {
+        BaseUri = new("https://project.supabase.co/"),
+        PublishableKey = "sb_publishable_test"
+    };
     private static HttpResponseMessage Json(HttpStatusCode code, string value) =>
         new(code) { Content = new StringContent(value, Encoding.UTF8, "application/json") };
     private static HttpRequestMessage Clone(HttpRequestMessage request)
