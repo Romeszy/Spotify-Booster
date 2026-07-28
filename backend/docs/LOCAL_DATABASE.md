@@ -24,6 +24,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/bootstrap-supa
 npm run db:reset
 npm run db:lint
 npm run test:db
+npm run test:e2e:me
 ```
 
 The script always uses the lock-installed Supabase CLI `2.109.1`; a global CLI
@@ -53,7 +54,8 @@ machine-local TLS and Auth signing material. The bootstrap:
 - validates but never overwrites an existing signing key;
 - applies `0700` directories and `0600` private files on POSIX. On Windows the
   bootstrap disables file ACL inheritance and grants the current SID and
-  `SYSTEM` only when it creates a private file;
+  `SYSTEM` only; after atomic signing-key replacement it reapplies and verifies
+  the final directory and file permissions before accepting the key;
 - recursively deletes the private staging project, canonical placeholder,
   JWKS proof file, and other temporary files after failure or completion.
 
@@ -72,6 +74,10 @@ constant zero-argument `spotify_booster_health_v1()` RPC. It receives no table,
 view, sequence, or data-bearing function privilege. The helper schema is not
 exposed to `public`, `anon`, or `authenticated`.
 
+`authenticated` alone may execute `spotify_booster_me_v1()`. The function has
+no arguments, runs as `SECURITY INVOKER`, and obtains identity only from
+`auth.uid()` so a client cannot choose a `user_id`.
+
 The feature allowlist uses the shared contract identifiers:
 `AdvancedGain`, `ExpertMode`, `AdvancedBassBoost`, `Equalizer`,
 `CustomProfiles`, `GlobalHotkeys`, `TrayAdvancedControls`, `AutoStart`,
@@ -80,7 +86,7 @@ The feature allowlist uses the shared contract identifiers:
 ## Evidence boundary
 
 `npm audit --package-lock-only --audit-level=high` and static checks can run
-without the stack. Reset, lint, pgTAP, hosted RPC, two-user IDOR, Auth password
+without the stack. Reset, lint, pgTAP, real RPC, two-user IDOR, Auth password
 length, refresh rotation, and TLS/JWKS behavior are runtime evidence and must
 not be reported as passing unless Docker and the explicitly trusted strict TLS
 origin were actually exercised.

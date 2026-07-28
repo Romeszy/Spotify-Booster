@@ -1,7 +1,7 @@
 import test, { after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPrivateKey, generateKeyPairSync, sign } from 'node:crypto';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -40,6 +40,7 @@ test('CLI staging array normalizes to the exact private JWK array', () => {
   assert.equal(run('validate-jwk', input, dir, output).status, 0);
   const value=JSON.parse(readFileSync(output)); assert.equal(value.length,1); assert.equal(value[0].alg,'ES256'); assert.ok(!value[0].d.includes('='));
   assert.equal(run('validate-jwk', output, dir).status, 0);
+  if (process.platform !== 'win32') assert.equal(statSync(output).mode & 0o777,0o600);
 });
 
 test('existing object and JWKS envelope shapes are rejected', () => {
@@ -65,6 +66,15 @@ test('atomic writer flushes the staged file before close and same-directory rena
   const write=source.indexOf('writeFileSync(fd'); const flush=source.indexOf('fsyncSync(fd)',write); const close=source.indexOf('closeSync(fd)',flush); const rename=source.indexOf('renameSync(temp, path)',close);
   assert.ok(write>=0 && write<flush && flush<close && close<rename);
   assert.match(source,/const temp = `\$\{path\}\.tmp-/);
+});
+
+test('bootstrap reapplies and verifies final signing key permissions after atomic replacement', () => {
+  const source=readFileSync(fileURLToPath(new URL('./bootstrap-supabase-local.ps1', import.meta.url)),'utf8');
+  const replace=source.indexOf("Invoke-Checked 'node' @($Validator, 'validate-jwk', $stageSigningPath, $LocalRoot, $SigningPath)");
+  const directory=source.indexOf('Set-PrivateDirectory $AuthRoot',replace);
+  const acl=source.indexOf('Set-PrivateFile $SigningPath',directory);
+  const verify=source.indexOf("Invoke-Checked 'node' @($Validator, 'validate-jwk', $SigningPath, $LocalRoot)",acl);
+  assert.ok(replace>=0 && replace<directory && directory<acl && acl<verify);
 });
 
 test('bootstrap generates only through configured private staging without stdout capture', () => {

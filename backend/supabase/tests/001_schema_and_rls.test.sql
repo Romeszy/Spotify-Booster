@@ -1,6 +1,6 @@
 begin;
 
-select plan(94);
+select plan(110);
 
 select has_table('public', 'profiles', 'profiles exists');
 select has_table('public', 'entitlements', 'entitlements exists');
@@ -48,6 +48,19 @@ select ok(has_function_privilege('authenticated', 'public.spotify_booster_health
 select is(public.spotify_booster_health_v1(), '{"service":"spotify-booster-data","status":"ok","version":1}'::jsonb, 'health response exact');
 select is((select count(*)::integer from pg_depend d join pg_proc p on p.oid=d.objid join pg_class c on c.oid=d.refobjid where p.oid='public.spotify_booster_health_v1()'::regprocedure), 0, 'health has no relation dependency');
 
+select function_returns('public', 'spotify_booster_me_v1', array[]::text[], 'jsonb', 'me RPC returns jsonb');
+select is((select count(*)::integer from pg_proc where pronamespace='public'::regnamespace and proname='spotify_booster_me_v1'), 1, 'me RPC has one overload');
+select is((select pronargs from pg_proc where oid='public.spotify_booster_me_v1()'::regprocedure), 0::smallint, 'me RPC accepts no client identity');
+select is((select provolatile from pg_proc where oid='public.spotify_booster_me_v1()'::regprocedure), 's'::"char", 'me RPC is stable');
+select is((select proparallel from pg_proc where oid='public.spotify_booster_me_v1()'::regprocedure), 's'::"char", 'me RPC is parallel safe');
+select is((select prosecdef from pg_proc where oid='public.spotify_booster_me_v1()'::regprocedure), false, 'me RPC is security invoker');
+select is((select proconfig from pg_proc where oid='public.spotify_booster_me_v1()'::regprocedure), array['search_path=pg_catalog']::text[], 'me RPC search_path is fixed');
+select is((select pg_get_userbyid(proowner) from pg_proc where oid='public.spotify_booster_me_v1()'::regprocedure), 'postgres', 'me RPC has the expected owner');
+select ok((select not exists (select 1 from aclexplode(coalesce(proacl, acldefault('f', proowner))) where grantee=0 and privilege_type='EXECUTE') from pg_proc where oid='public.spotify_booster_me_v1()'::regprocedure), 'PUBLIC cannot execute me RPC');
+select ok(not has_function_privilege('anon', 'public.spotify_booster_me_v1()', 'EXECUTE'), 'anon cannot execute me RPC');
+select ok(has_function_privilege('authenticated', 'public.spotify_booster_me_v1()', 'EXECUTE'), 'authenticated executes me RPC');
+select is((select proargnames from pg_proc where oid='public.spotify_booster_me_v1()'::regprocedure), null::text[], 'me RPC exposes no named identity argument');
+
 insert into auth.users (id, email, raw_user_meta_data)
 values
   ('00000000-0000-0000-0000-00000000000a', 'a@example.invalid', '{"plan":"pro","display_name":"attacker"}'::jsonb),
@@ -62,6 +75,10 @@ select is((select display_name from public.profiles where user_id='00000000-0000
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+select is((public.spotify_booster_me_v1()->>'userId')::uuid, '00000000-0000-0000-0000-00000000000a'::uuid, 'A me RPC is JWT scoped to A');
+select is(public.spotify_booster_me_v1()->>'plan', 'free', 'A me RPC returns Free entitlement');
+select is(public.spotify_booster_me_v1()->'features', '[]'::jsonb, 'A me RPC returns the feature array');
+select ok(not (public.spotify_booster_me_v1()::text like '%00000000-0000-0000-0000-00000000000b%'), 'A me RPC never exposes B');
 select results_eq('select user_id from public.profiles order by user_id', $$values ('00000000-0000-0000-0000-00000000000a'::uuid)$$, 'A reads only own profile');
 select results_eq('select user_id from public.entitlements order by user_id', $$values ('00000000-0000-0000-0000-00000000000a'::uuid)$$, 'A reads only own entitlement');
 select lives_ok($$update public.profiles set display_name='Alice' where user_id='00000000-0000-0000-0000-00000000000a'$$, 'A updates own display name');

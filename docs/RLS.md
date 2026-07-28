@@ -7,12 +7,12 @@ RLS est activée et forcée sur `public.profiles` et
 
 ## Matrice d’accès
 
-| Rôle | `profiles` | `entitlements` | RPC health |
-| --- | --- | --- | --- |
-| `PUBLIC` | aucun | aucun | aucun |
-| `anon` | aucun | aucun | exécution |
-| `authenticated` | select propre, update propre de `display_name` | select propre | exécution |
-| writer futur | aucun droit login; update serveur contrôlé | select/update limité | non requis |
+| Rôle | `profiles` | `entitlements` | RPC health | RPC `/v1/me` |
+| --- | --- | --- | --- | --- |
+| `PUBLIC` | aucun | aucun | aucun | aucun |
+| `anon` | aucun | aucun | exécution | aucun |
+| `authenticated` | select propre, update propre de `display_name` | select propre | exécution | exécution, résultat propre |
+| writer futur | aucun droit login; update serveur contrôlé | select/update limité | non requis | non requis |
 
 Policies :
 
@@ -42,10 +42,14 @@ La suite `backend/supabase/tests/001_schema_and_rls.test.sql` couvre notamment :
 - contraintes plan/statut/features/dates/revision ;
 - invariants des triggers ;
 - forme, privilèges et retour exact de la RPC ;
+- absence d’argument d’identité, grants exacts et JWT-scoping de la RPC
+  `spotify_booster_me_v1()` ;
 - absence des tables différées.
 
-La voie base a obtenu un résultat pgTAP positif. Ce résultat doit être rejoué
-depuis un reset propre dans le gate d’intégration final.
+La voie base a obtenu `110/110` assertions pgTAP depuis un reset propre. Le
+test backend réel `npm run test:e2e:me` crée deux utilisateurs locaux, appelle
+le RPC en TLS avec leurs bearers distincts, vérifie l’isolation A/B, puis
+supprime les fixtures.
 
 ## Modification sûre
 

@@ -13,8 +13,9 @@
     "db:reset": "supabase db reset --workdir .",
     "db:lint": "supabase db lint --workdir . --level error",
     "test:db": "supabase test db --workdir .",
+    "test:e2e:me": "node ./scripts/e2e-me-rpc.mjs",
     "test": "node --test ./scripts/*.test.mjs",
-    "lint": "node --check ./scripts/validate-local-assets.mjs && node --check ./scripts/validate-local-assets.test.mjs"
+    "lint": "node --check ./scripts/e2e-me-rpc.mjs && node --check ./scripts/node-version.test.mjs && node --check ./scripts/process-tree.test.mjs && node --check ./scripts/validate-local-assets.mjs && node --check ./scripts/validate-local-assets.test.mjs"
   },
   "devDependencies": {
     "supabase": "2.109.1"

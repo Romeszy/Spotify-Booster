@@ -14,29 +14,38 @@ n’est livré.
 | Voie | Fonctionnalité | Preuve la plus récente |
 | --- | --- | --- |
 | Desktop/Audio | énumération, route, moteur, métriques, récupération | Audio `27` tests |
-| DSP | pipeline modulaire, stabilité numérique, `+75 dB` | DSP `88` tests |
-| Core/Infrastructure | validation V3, migration V1/V2, persistance | Core `86` tests |
-| API | JWT/JWKS, `/health/*`, `/v1/me`, rate limiting, métriques | API `72` tests |
-| Auth | contrats, appels Supabase, refresh/logout, redaction | Auth `39` tests |
-| Tooling Node | bootstrap/assets locaux | Node `11` tests, lint réussi, audit `0` |
-| PostgreSQL/RLS | schéma, grants, policies, triggers, RPC | plan pgTAP `94`, exécution locale à rejouer |
+| DSP | pipeline modulaire, stabilité numérique, `+75 dB` | DSP `90` tests |
+| Core/Infrastructure | validation V3, migration V1/V2, persistance | Core `88` tests |
+| API | JWT/JWKS borné à 32 clés, `/health/*`, `/v1/me`, rate limiting, métriques | API `76` tests |
+| Auth | contrats, appels Supabase, refresh/logout, redaction | Auth `45` tests |
+| Tooling Node | bootstrap/assets locaux, ACL après remplacement | Node `12` tests, lint réussi, audit `0` |
+| PostgreSQL/RLS | schéma, grants, policies, triggers, RPC health/me | pgTAP `110/110`, E2E RPC TLS A/B réussi |
 
 Le build Release des 13 projets réussit sans avertissement et le test complet
-de la solution réussit `312/312`. La restauration verrouillée passe. Le reset,
-le lint PostgreSQL, pgTAP et les contrôles E2E locaux restent exclus de ce
-résultat tant que le certificat TLS local n’a pas reçu une confiance explicite.
+de la solution réussit `326/326` lors du gate d’intégration actuel. Pour la
+voie API/backend actuelle, reset depuis zéro, lint PostgreSQL, pgTAP `110/110`
+et E2E TLS réel à deux utilisateurs ont été rejoués avec succès.
 
 ## Implémenté Phase A
 
 - `SpotifyBooster.Contracts`, `SpotifyBooster.Auth` et `SpotifyBooster.Api` ;
-- JWT `RS256`/`ES256`, cache JWKS 10 minutes, gates 60 secondes et fail-closed ;
+- JWT `RS256`/`ES256`, cache JWKS 10 minutes borné à 32 clés, gates 60 secondes
+  et fail-closed ;
 - endpoints `GET /health/live`, `GET /health/ready`, `GET /v1/me` ;
 - Data API avec bearer par requête et vérification du subject ;
-- migrations `profiles`, `entitlements`, triggers, RLS et RPC health ;
+- migrations `profiles`, `entitlements`, triggers, RLS, RPC health et RPC
+  `/v1/me` JWT-scoped sans argument d’identité ;
 - Supabase CLI locale exacte `2.109.1`, TLS loopback et clés ES256 locales ;
 - schéma de réglages V3 ;
 - RawExpert fixe `0..+75 dB` par pas de `0,5 dB` ;
 - suppression du clamp DSP caché `±64` et assainissement NaN/Inf.
+- abstractions Auth/entitlement/update placées dans `Core/Abstractions`, avec
+  modèles wire indépendants dans Contracts ;
+- entitlement `canceled` maintenu jusqu’à la fin de période exacte, puis
+  désactivé ;
+- preuve V3 du rejet de `ExpertModeAcknowledged` obsolète et du rechargement
+  idempotent après migration ;
+- récupération finie ciblée des états compresseur et limiteur après NaN/Inf.
 
 ## Fonctionne seulement localement ou comme contrat
 
@@ -45,7 +54,9 @@ résultat tant que le certificat TLS local n’a pas reçu une confiance explici
 - les sessions ne sont pas persistées ;
 - les contrats entitlement/update n’ont pas de service desktop concret ;
 - le rôle writer d’entitlements est `NOLOGIN`, sans endpoint ;
-- la RPC health teste seulement un chemin Data API constant.
+- la RPC health teste seulement un chemin Data API constant ;
+- l’E2E backend prouve le RPC Data API réel ; le test hosted de l’API reste un
+  test contractuel à transport contrôlé, pas une preuve d’hébergement externe.
 
 ## Non implémenté
 
@@ -66,7 +77,7 @@ résultat tant que le certificat TLS local n’a pas reçu une confiance explici
 - endurance audio et débranchement/reconnexion ;
 - machine propre, installation/désinstallation ;
 - DPI 125/150 %, clavier et Narrateur ;
-- reset/lint/pgTAP, E2E Auth/RLS et scans avec la stack locale TLS.
+- E2E Auth complet de rotation refresh/logout et scans de release.
 
 ## Risques
 
@@ -80,6 +91,6 @@ résultat tant que le certificat TLS local n’a pas reçu une confiance explici
 
 ## Prochaine étape
 
-Rejouer la stack locale TLS, reset/lint/pgTAP et les contrôles E2E Auth/RLS,
-puis exécuter la checklist manuelle Phase A. La Phase B commencera par une ADR
+Compléter l’E2E Auth de rotation refresh/logout, puis exécuter la checklist
+manuelle Phase A. La Phase B commencera par une ADR
 Stripe et le writer privilégié ; elle ne doit pas être amorcée dans ce gate.

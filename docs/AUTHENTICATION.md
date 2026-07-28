@@ -57,6 +57,10 @@ Le document JWKS est limité à 256 Kio et le fetch à 5 secondes. Le cache est
 frais sur l’intervalle `[loadedAt, loadedAt + 10 min)`. À expiration, en cas de
 purge ou d’échec de refresh, la validation échoue fermée.
 
+Un document peut contenir au plus 32 clés. Une rotation surdimensionnée est
+rejetée en bloc : elle ne publie aucune clé partielle et ne remplace pas un
+snapshot frais déjà validé.
+
 Le coordinateur applique :
 
 - un single-flight par processus ;
@@ -85,6 +89,12 @@ utilisent un Problem Details expurgé avec `code` et `traceId`.
 `/v1/me` limite à 30 requêtes par minute et subject authentifié. Une requête
 sans subject valide est limitée à 10 requêtes par minute et adresse distante.
 Un dépassement retourne `429` avec `Retry-After` et Problem Details expurgé.
+
+Le RPC aval `spotify_booster_me_v1()` n’accepte aucun `user_id` client. Il
+résout le sujet par `auth.uid()` sous le rôle `authenticated`, avec
+`SECURITY INVOKER` et RLS forcée. Le test hosted API valide le pipeline HTTP et
+JWT avec un transport aval contrôlé ; `npm run test:e2e:me` est la preuve
+distincte, sans mock, du RPC Data API TLS et de l’isolation entre deux bearers.
 
 ## Différé
 

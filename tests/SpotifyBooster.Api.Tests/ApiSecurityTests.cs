@@ -442,6 +442,31 @@ public sealed class ApiSecurityTests : IDisposable
     }
 
     [Fact]
+    public async Task JwksCacheAcceptsExplicitMaximumAndRejectsOneAdditionalKey()
+    {
+        var maximumKids = Enumerable.Range(0, JwksCoordinator.MaximumCachedKeys)
+            .Select(index => $"key-{index}")
+            .ToArray();
+        using (var accepted = Coordinator((_, _) =>
+                   Task.FromResult(Json(HttpStatusCode.OK, RsaJwks(maximumKids)))))
+        {
+            using var key = await accepted.FindAsync(maximumKids[^1],
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(key);
+            Assert.True(accepted.IsReady);
+        }
+
+        var oversizedKids = Enumerable.Range(0, JwksCoordinator.MaximumCachedKeys + 1)
+            .Select(index => $"oversized-{index}")
+            .ToArray();
+        using var rejected = Coordinator((_, _) =>
+            Task.FromResult(Json(HttpStatusCode.OK, RsaJwks(oversizedKids))));
+        Assert.Null(await rejected.FindAsync(oversizedKids[0],
+            TestContext.Current.CancellationToken));
+        Assert.False(rejected.IsReady);
+    }
+
+    [Fact]
     public async Task JwksHttpRedirectInvalidAndOversizedDocumentsFailClosed()
     {
         var cases = new Func<HttpResponseMessage>[]

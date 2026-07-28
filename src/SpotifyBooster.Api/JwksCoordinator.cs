@@ -56,6 +56,7 @@ public sealed class JwkKey : IDisposable
 
 public sealed class JwksCoordinator : IDisposable
 {
+    public const int MaximumCachedKeys = 32;
     private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan Gate = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(5);
@@ -346,7 +347,8 @@ public sealed class JwksCoordinator : IDisposable
         using var document = JsonDocument.Parse(bytes);
         if (document.RootElement.ValueKind != JsonValueKind.Object ||
             !document.RootElement.TryGetProperty("keys", out var keys) ||
-            keys.ValueKind != JsonValueKind.Array)
+            keys.ValueKind != JsonValueKind.Array ||
+            keys.GetArrayLength() > MaximumCachedKeys)
             throw new InvalidDataException();
         var result = new Dictionary<string, JwkMaterial>(StringComparer.Ordinal);
         try

@@ -146,6 +146,11 @@ try {
             ) 60
             Set-PrivateFile $stageSigningPath
             Invoke-Checked 'node' @($Validator, 'validate-jwk', $stageSigningPath, $LocalRoot, $SigningPath)
+            # Atomic replacement creates a new filesystem object. Reapply and
+            # verify the final object's ACL/mode rather than relying on inheritance.
+            Set-PrivateDirectory $AuthRoot
+            Set-PrivateFile $SigningPath
+            Invoke-Checked 'node' @($Validator, 'validate-jwk', $SigningPath, $LocalRoot)
             $placeholderCreated = $false
         } finally {
             if (Test-Path -LiteralPath $stageRoot) { Remove-Item -LiteralPath $stageRoot -Recurse -Force }
