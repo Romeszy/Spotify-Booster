@@ -24,14 +24,23 @@ function Invoke-Checked([string]$File, [string[]]$Arguments) {
     & $File @Arguments
     if ($LASTEXITCODE -ne 0) { throw "command_failed:$File" }
 }
-function Invoke-Bounded([string]$File, [string[]]$Arguments, [int]$TimeoutSeconds) {
+function Invoke-BoundedSilent([string]$File, [string[]]$Arguments, [int]$TimeoutSeconds) {
     $quoted = @($Arguments | ForEach-Object { if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ } })
-    $process = Start-Process -FilePath $File -ArgumentList $quoted -PassThru -NoNewWindow
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo.FileName = $File
+    $process.StartInfo.Arguments = ($quoted -join ' ')
+    $process.StartInfo.UseShellExecute = $false
+    $process.StartInfo.RedirectStandardOutput = $true
+    $process.StartInfo.RedirectStandardError = $true
+    if (-not $process.Start()) { throw 'command_start_failed' }
+    $process.BeginOutputReadLine()
+    $process.BeginErrorReadLine()
     if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
         try { $process.Kill() } catch { }
         throw 'command_timeout'
     }
-    if ($process.ExitCode -ne 0) { throw "command_failed:$File" }
+    $process.WaitForExit()
+    if ($process.ExitCode -ne 0) { throw 'command_failed' }
 }
 function Assert-PrivateWindowsAcl([string]$Path) {
     $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
@@ -97,32 +106,46 @@ try {
     Invoke-Checked 'node' @($Validator, 'validate-tls', $CertificatePath, $CertificateKeyPath, $LocalRoot)
 
     if (-not (Test-Path -LiteralPath $SigningPath -PathType Leaf)) {
-        $capture = Join-Path $AuthRoot ('.signing-capture-' + [guid]::NewGuid().ToString('N') + '.json')
+        $stageRoot = Join-Path $AuthRoot ('.signing-stage-' + [guid]::NewGuid().ToString('N'))
+        $stageProjectRoot = Join-Path $stageRoot 'project'
+        $stageSupabaseRoot = Join-Path $stageProjectRoot 'supabase'
+        $stageSigningPath = Join-Path $stageSupabaseRoot 'signing_keys.json'
+        $stageConfigPath = Join-Path $stageSupabaseRoot 'config.toml'
         $placeholderCreated = $false
         try {
+            # The canonical placeholder proves exclusive creation but is never
+            # passed to the CLI, whose implementation truncates its configured path.
             $stream = [System.IO.File]::Open($SigningPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
             try { $stream.Write([byte[]](91, 93), 0, 2); $stream.Flush($true) } finally { $stream.Dispose() }
             $placeholderCreated = $true
             Set-PrivateFile $SigningPath
+
+            Set-PrivateDirectory $stageRoot
+            Set-PrivateDirectory $stageProjectRoot
+            Set-PrivateDirectory $stageSupabaseRoot
+            [System.IO.File]::WriteAllText(
+                $stageConfigPath,
+                "project_id = `"spotify-booster-signing-stage`"`n`n[auth]`nsigning_keys_path = `"./signing_keys.json`"`n",
+                (New-Object System.Text.UTF8Encoding($false)))
+            Set-PrivateFile $stageConfigPath
+            $stageStream = [System.IO.File]::Open($stageSigningPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+            try { $stageStream.Write([byte[]](91, 93), 0, 2); $stageStream.Flush($true) } finally { $stageStream.Dispose() }
+            Set-PrivateFile $stageSigningPath
+
+            # CLI v2.109.1 writes via O_TRUNC to the staging signing_keys_path.
+            # Both streams are asynchronously discarded: a private JWK never
+            # enters a transcript, PowerShell string, capture file, or final path.
             $npmCommand = (Get-Command $(if ($RunningOnWindows) { 'npm.cmd' } else { 'npm' })).Source
-            $process = New-Object System.Diagnostics.Process
-            $process.StartInfo.FileName = $npmCommand
-            $process.StartInfo.Arguments = ('--prefix "' + $BackendRoot + '" exec --offline -- supabase gen signing-key --algorithm ES256 --yes')
-            $process.StartInfo.WorkingDirectory = $env:TEMP
-            $process.StartInfo.UseShellExecute = $false
-            $process.StartInfo.RedirectStandardOutput = $true
-            $process.StartInfo.RedirectStandardError = $true
-            if (-not $process.Start()) { throw 'signing_generation_failed' }
-            $stdout = $process.StandardOutput.ReadToEnd()
-            $null = $process.StandardError.ReadToEnd()
-            $process.WaitForExit()
-            if ($process.ExitCode -ne 0) { throw 'signing_generation_failed' }
-            [System.IO.File]::WriteAllText($capture, ($stdout -join "`n"), (New-Object System.Text.UTF8Encoding($false)))
-            Set-PrivateFile $capture
-            Invoke-Checked 'node' @($Validator, 'normalize-cli-jwk', $capture, $LocalRoot, $SigningPath)
+            Invoke-BoundedSilent $npmCommand @(
+                '--prefix', $BackendRoot, 'exec', '--offline', '--', 'supabase',
+                'gen', 'signing-key', '--algorithm', 'ES256', '--yes',
+                '--workdir', $stageProjectRoot
+            ) 60
+            Set-PrivateFile $stageSigningPath
+            Invoke-Checked 'node' @($Validator, 'validate-jwk', $stageSigningPath, $LocalRoot, $SigningPath)
             $placeholderCreated = $false
         } finally {
-            if (Test-Path -LiteralPath $capture) { Remove-Item -LiteralPath $capture -Force }
+            if (Test-Path -LiteralPath $stageRoot) { Remove-Item -LiteralPath $stageRoot -Recurse -Force }
             if ($placeholderCreated -and (Test-Path -LiteralPath $SigningPath)) { Remove-Item -LiteralPath $SigningPath -Force }
         }
     } else {
@@ -138,8 +161,19 @@ try {
         Write-Host 'Certificate trust was not changed. Re-run with -TrustCertificate only after explicit review.'
     }
 
-    if (-not $SkipStart) { Invoke-Bounded $LocalCli @('start', '--workdir', $BackendRoot) $StartTimeoutSeconds }
-    Write-Host 'Supabase local bootstrap completed with strict TLS and ES256 validation.'
+    if (-not $SkipStart) {
+        $npmCommand = (Get-Command $(if ($RunningOnWindows) { 'npm.cmd' } else { 'npm' })).Source
+        Invoke-BoundedSilent $npmCommand @('--prefix', $BackendRoot, 'exec', '--offline', '--', 'supabase', 'start', '--workdir', $BackendRoot) $StartTimeoutSeconds
+        $jwksPath = Join-Path $AuthRoot ('.jwks-' + [guid]::NewGuid().ToString('N') + '.json')
+        try {
+            $jwks = Invoke-RestMethod -Method Get -Uri 'https://127.0.0.1:54321/auth/v1/.well-known/jwks.json' -TimeoutSec 5
+            [System.IO.File]::WriteAllText($jwksPath, ($jwks | ConvertTo-Json -Depth 8 -Compress), (New-Object System.Text.UTF8Encoding($false)))
+            Invoke-Checked 'node' @($Validator, 'validate-jwks', $SigningPath, $jwksPath, $LocalRoot)
+        } finally {
+            if (Test-Path -LiteralPath $jwksPath) { Remove-Item -LiteralPath $jwksPath -Force }
+        }
+    }
+    Write-Host 'Supabase local bootstrap completed with strict TLS and ES256/JWKS validation.'
 } catch {
     Write-Error ('bootstrap_failed:' + $_.Exception.Message)
     exit 1

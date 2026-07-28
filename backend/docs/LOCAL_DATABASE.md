@@ -36,15 +36,20 @@ machine-local TLS and Auth signing material. The bootstrap:
   absent;
 - refuses incomplete, expired/not-yet-valid, missing-IP-SAN, or mismatched TLS
   material without overwriting it;
-- creates an exact two-byte `[]` signing placeholder with exclusive creation,
-  captures CLI output outside the transcript, validates exact ES256/P-256 JWK
-  fields and a sign/verify round trip, then replaces the placeholder atomically;
+- creates an exact two-byte `[]` canonical placeholder with exclusive
+  creation, then creates an ACL-restricted temporary Supabase project under
+  `.local/auth` whose configured `signing_keys_path` points to a separate `[]`
+  staging file; CLI `2.109.1` truncates and writes only that staging path while
+  both process streams are discarded, never captured;
+- validates the staged exact ES256/P-256 JWK fields and a private-sign/public-
+  verify round trip, atomically replaces the canonical placeholder, then after
+  startup proves that JWKS matches `kid/x/y` and contains no private `d`;
 - validates but never overwrites an existing signing key;
 - applies `0700` directories and `0600` private files on POSIX. On Windows the
   bootstrap disables file ACL inheritance and grants the current SID and
   `SYSTEM` only when it creates a private file;
-- deletes capture, placeholder, and temporary files after any failed signing
-  generation.
+- recursively deletes the private staging project, canonical placeholder,
+  JWKS proof file, and other temporary files after failure or completion.
 
 Never commit, paste into logs, or attach `.local` files. Certificate trust is
 not changed unless `-TrustCertificate` is explicitly passed.

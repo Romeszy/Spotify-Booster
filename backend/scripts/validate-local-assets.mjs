@@ -17,9 +17,9 @@ function base64url32(value, field) {
   const normalized = Buffer.alloc(32); decoded.copy(normalized, 32 - decoded.length);
   return normalized.toString('base64url');
 }
-function normalizeJwk(document, allowObject) {
-  if (!Array.isArray(document) && !allowObject) fail('invalid_signing_document_shape');
-  const list = Array.isArray(document) ? document : [document];
+function normalizeJwk(document) {
+  if (!Array.isArray(document)) fail('invalid_signing_document_shape');
+  const list = document;
   if (list.length !== 1 || !list[0] || Array.isArray(list[0]) || typeof list[0] !== 'object') fail('invalid_signing_document_shape');
   const jwk = { ...list[0] };
   if (JSON.stringify(Object.keys(jwk).sort()) !== JSON.stringify(exactKeys)) fail('invalid_signing_fields');
@@ -58,6 +58,15 @@ function validateTls(certPath, keyPath, root) {
   if (!certSpki.equals(keySpki)) fail('tls_certificate_key_mismatch');
   enforceMode(keyPath, 0o600);
 }
+function validateJwks(signingPath, jwksPath, root) {
+  under(signingPath, root); under(jwksPath, root);
+  const [privateJwk] = normalizeJwk(JSON.parse(readFileSync(signingPath, 'utf8')));
+  const document = JSON.parse(readFileSync(jwksPath, 'utf8'));
+  if (!document || !Array.isArray(document.keys) || document.keys.length < 1) fail('invalid_jwks_document');
+  if (JSON.stringify(document).includes('"d"')) fail('jwks_exposes_private_scalar');
+  const matches = document.keys.filter(key => key && key.kid === privateJwk.kid && key.kty === 'EC' && key.alg === 'ES256' && key.crv === 'P-256' && key.x === privateJwk.x && key.y === privateJwk.y);
+  if (matches.length !== 1) fail('jwks_signing_key_mismatch');
+}
 function writeAtomic(path, value) {
   const temp = `${path}.tmp-${process.pid}`;
   let fd;
@@ -77,9 +86,10 @@ function writeAtomic(path, value) {
 try {
   const [command, ...args] = process.argv.slice(2);
   if (command === 'validate-tls' && args.length === 3) validateTls(args[0], args[1], args[2]);
-  else if ((command === 'validate-jwk' || command === 'normalize-cli-jwk') && (args.length === 2 || args.length === 3)) {
+  else if (command === 'validate-jwks' && args.length === 3) validateJwks(args[0], args[1], args[2]);
+  else if (command === 'validate-jwk' && (args.length === 2 || args.length === 3)) {
     under(args[0], args[1]);
-    const normalized = normalizeJwk(JSON.parse(readFileSync(args[0], 'utf8')), command === 'normalize-cli-jwk');
+    const normalized = normalizeJwk(JSON.parse(readFileSync(args[0], 'utf8')));
     if (args[2]) { under(args[2], args[1]); writeAtomic(args[2], normalized); }
     enforceMode(args[0], 0o600);
   } else fail('invalid_validator_arguments');
