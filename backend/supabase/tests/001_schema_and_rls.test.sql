@@ -1,6 +1,6 @@
 begin;
 
-select plan(85);
+select plan(94);
 
 select has_table('public', 'profiles', 'profiles exists');
 select has_table('public', 'entitlements', 'entitlements exists');
@@ -88,7 +88,11 @@ select ok(has_column_privilege('authenticated', 'public.entitlements', 'plan', '
 select ok(not has_function_privilege('anon', 'spotify_booster_private.touch_profile()', 'EXECUTE'), 'anon cannot execute profile trigger helper');
 select ok(not has_function_privilege('authenticated', 'spotify_booster_private.touch_profile()', 'EXECUTE'), 'authenticated cannot execute profile trigger helper');
 select ok(not has_function_privilege('anon', 'spotify_booster_private.touch_entitlement()', 'EXECUTE'), 'anon cannot execute entitlement trigger helper');
+select ok(not has_function_privilege('authenticated', 'spotify_booster_private.touch_entitlement()', 'EXECUTE'), 'authenticated cannot execute entitlement trigger helper');
+select ok(not has_function_privilege('anon', 'spotify_booster_private.handle_auth_user_created()', 'EXECUTE'), 'anon cannot execute signup helper');
 select ok(not has_function_privilege('authenticated', 'spotify_booster_private.handle_auth_user_created()', 'EXECUTE'), 'authenticated cannot execute signup helper');
+select ok((select not exists (select 1 from aclexplode(coalesce(proacl, acldefault('f', proowner))) where grantee=0 and privilege_type='EXECUTE') from pg_proc where oid='spotify_booster_private.touch_profile()'::regprocedure), 'PUBLIC cannot execute profile trigger helper');
+select ok((select not exists (select 1 from aclexplode(coalesce(proacl, acldefault('f', proowner))) where grantee=0 and privilege_type='EXECUTE') from pg_proc where oid='spotify_booster_private.touch_entitlement()'::regprocedure), 'PUBLIC cannot execute entitlement trigger helper');
 select ok((select not exists (select 1 from aclexplode(coalesce(proacl, acldefault('f', proowner))) where grantee=0 and privilege_type='EXECUTE') from pg_proc where oid='spotify_booster_private.handle_auth_user_created()'::regprocedure), 'PUBLIC cannot execute signup helper');
 select is((select proconfig from pg_proc where oid='spotify_booster_private.touch_profile()'::regprocedure), array['search_path=pg_catalog']::text[], 'profile helper search_path fixed');
 select is((select proconfig from pg_proc where oid='spotify_booster_private.touch_entitlement()'::regprocedure), array['search_path=pg_catalog']::text[], 'entitlement helper search_path fixed');
@@ -100,7 +104,12 @@ select has_trigger('auth', 'users', 'spotify_booster_auth_user_created', 'signup
 select throws_ok($$update public.profiles set user_id='00000000-0000-0000-0000-00000000000b' where user_id='00000000-0000-0000-0000-00000000000a'$$, '22000', 'immutable_profile_owner', 'profile owner immutable');
 select throws_ok($$update public.profiles set created_at=created_at-interval '1 day' where user_id='00000000-0000-0000-0000-00000000000a'$$, '22000', 'immutable_profile_created_at', 'profile created_at immutable');
 select throws_ok($$update public.entitlements set issued_at=issued_at-interval '1 day', revision=revision+1 where user_id='00000000-0000-0000-0000-00000000000a'$$, '22000', 'immutable_entitlement_issued_at', 'entitlement issued_at immutable');
+select throws_ok($$update public.entitlements set user_id='00000000-0000-0000-0000-00000000000b', revision=revision+1 where user_id='00000000-0000-0000-0000-00000000000a'$$, '22000', 'immutable_entitlement_owner', 'entitlement owner immutable');
+select ok(not has_column_privilege('spotify_booster_entitlement_writer', 'public.entitlements', 'user_id', 'UPDATE'), 'controlled writer cannot update entitlement owner column');
+select throws_ok($$update public.entitlements set revision=revision-1 where user_id='00000000-0000-0000-0000-00000000000a'$$, '22000', 'entitlement_revision_must_increment_once', 'revision decrement rejected');
 select throws_ok($$update public.entitlements set features=array['AdvancedGain','ExpertMode','AdvancedBassBoost','Equalizer','CustomProfiles','GlobalHotkeys','TrayAdvancedControls','AutoStart','AdvancedDiagnostics','FuturePremiumFeatures','Unknown'], revision=revision+1 where user_id='00000000-0000-0000-0000-00000000000a'$$, '23514', null, 'more than ten features rejected');
+select throws_ok($$update public.entitlements set plan='free', valid_until=null, grace_until=issued_at+interval '1 day', revision=revision+1 where user_id='00000000-0000-0000-0000-00000000000a'$$, '23514', null, 'Free grace timestamp rejected');
+select throws_ok($$update public.entitlements set plan='pro', valid_until=null, grace_until=null, revision=revision+1 where user_id='00000000-0000-0000-0000-00000000000a'$$, '23514', null, 'Pro without valid_until rejected');
 select throws_ok($$update public.entitlements set valid_until=issued_at-interval '1 second', revision=revision+1 where user_id='00000000-0000-0000-0000-00000000000a'$$, '23514', null, 'valid_until before issued_at rejected');
 select throws_ok($$update public.entitlements set grace_until=valid_until-interval '1 second', revision=revision+1 where user_id='00000000-0000-0000-0000-00000000000a'$$, '23514', null, 'grace before valid_until rejected');
 
