@@ -28,7 +28,8 @@ La fondation commerciale Phase A ajoute :
 - un adaptateur Supabase Auth testable, avec session en mémoire uniquement ;
 - une API ASP.NET Core avec JWT asymétriques `RS256`/`ES256`, cache JWKS,
   rate limiting, readiness et endpoint `/v1/me` ;
-- PostgreSQL/Supabase local avec migrations, RLS, profils et entitlements ;
+- PostgreSQL/Supabase avec schéma Phase A hébergé, stack locale de validation,
+  migrations, RLS, profils et entitlements ;
 - le schéma de configuration V3 et le plafond Expert fixe à `+75 dB`.
 
 La Phase A ne fournit pas Stripe, abonnement Pro réel, écrans de compte WPF,
@@ -37,15 +38,16 @@ Authenticode, environnement de production ou release commerciale.
 
 La restauration verrouillée et le build Release des 13 projets réussissent
 avec `0` avertissement et `0` erreur. Le test complet de la solution réussit
-`344/344` :
+`366/366` :
 
 - desktop : Audio `27`, DSP `90` et Core `90` tests ;
-- fondation réseau : API `92/92` et Auth `45` tests ;
-- tooling backend : Node `18/18` tests, lint réussi et audit npm à
-  `0` vulnérabilité.
+- fondation réseau : API `105/105` et Auth `54/54` tests ;
+- tooling backend : `24` tests Node avec une branche conditionnelle par OS ;
+  les cas TLS ont réussi sous WSL, les ACL réelles sous Windows, le lint a
+  réussi et l’audit npm trouve `0` vulnérabilité.
 
 La voie Supabase locale a également réussi le démarrage, le reset, le lint,
-`110/110` assertions pgTAP, la preuve d’atomicité du runner et l’E2E Auth/API
+`111/111` assertions pgTAP, la preuve d’atomicité du runner et l’E2E Auth/API
 TLS complet. Le gate démarre le vrai processus ASP.NET, traverse `/v1/me` avec
 deux utilisateurs, rotation/rejeu refresh, logout, panne puis récupération
 readiness. Le JWKS a été lu avec `curl --cacert`. Ces preuves ont été obtenues
@@ -146,11 +148,15 @@ Consultez
 | --- | --- | --- |
 | `GET /health/live` | aucune | `200 {"status":"live"}` |
 | `GET /health/ready` | aucune | `200 ready` ou `503 unready` |
-| `GET /v1/me` | bearer Supabase | profil expurgé et entitlement effectif |
+| `GET /v1/me` | bearer Supabase | profil expurgé et projection d’entitlement Phase A |
 
 La readiness exige un cache JWKS frais et une réponse exacte de la RPC
 publique `spotify_booster_health_v1()`. Elle ne prouve pas à elle seule la
 santé complète d’Auth, de PostgreSQL ou d’un abonnement.
+
+La projection d’entitlement contient `plan`, `status`, `revision` et
+`features`. Elle ne calcule pas encore une décision commerciale tenant compte
+de Stripe, de la validité, de la grâce ou du feature gating, tous différés.
 
 ## Limites importantes
 

@@ -179,9 +179,33 @@ public sealed class JsonSettingsServiceTests : IDisposable
               "SchemaVersion": 2,
               "FirstRunCompleted": true,
               "ExpertModeAcknowledged": {{oldAcknowledgement.ToString().ToLowerInvariant()}},
+              "SourceDeviceId": "virtual-source-v2",
+              "OutputDeviceId": "physical-output-v2",
+              "StartWithWindows": true,
+              "StartMinimized": true,
+              "StartProcessingAutomatically": true,
+              "WaitForDevicesOnStartup": false,
+              "WaitForSpotifyOnStartup": true,
+              "CloseBehavior": 2,
+              "NotificationsEnabled": false,
+              "HeadphonesSafetyMode": false,
+              "Theme": 1,
+              "Density": 1,
+              "ReduceAnimations": true,
+              "ShowLinearPercent": false,
+              "DetailedDiagnostics": true,
+              "Hotkeys": {
+                "GlobalHotkeysEnabled": true,
+                "IncreaseGain": "Ctrl+Shift+Up",
+                "DecreaseGain": "Ctrl+Shift+Down",
+                "ToggleProcessing": "Ctrl+Shift+B",
+                "PanicReset": "Ctrl+Shift+0",
+                "ToggleBassBoost": "Ctrl+Shift+G",
+                "ToggleWindow": "Ctrl+Shift+S"
+              },
               "Processing": {
                 "Mode": 2,
-                "MainGainDb": 74.6,
+                "MainGainDb": 10.1,
                 "ExpertMaximumGainDb": 1000,
                 "CompressorEnabled": false,
                 "SoftClipperEnabled": false,
@@ -189,10 +213,21 @@ public sealed class JsonSettingsServiceTests : IDisposable
               },
               "Profiles": [
                 {
-                  "Name": "Direct precise",
+                  "Name": "Protected precise",
                   "Processing": {
-                    "Mode": 1,
+                    "Mode": 0,
                     "MainGainDb": 10.1,
+                    "ExpertMaximumGainDb": 1000,
+                    "CompressorEnabled": true,
+                    "SoftClipperEnabled": true,
+                    "LimiterEnabled": true
+                  }
+                },
+                {
+                  "Name": "Raw rounded",
+                  "Processing": {
+                    "Mode": 2,
+                    "MainGainDb": 74.6,
                     "ExpertMaximumGainDb": 1000,
                     "CompressorEnabled": false,
                     "SoftClipperEnabled": false,
@@ -223,9 +258,44 @@ public sealed class JsonSettingsServiceTests : IDisposable
 
         Assert.Equal(3, migrated.SchemaVersion);
         Assert.False(migrated.Expert75DbAcknowledged);
-        Assert.Equal(74.5, migrated.Processing.MainGainDb);
+        Assert.Equal(10, migrated.Processing.MainGainDb);
+        Assert.Equal(AudioProtectionMode.RawExpert, migrated.Processing.Mode);
+        Assert.False(migrated.Processing.CompressorEnabled);
+        Assert.False(migrated.Processing.SoftClipperEnabled);
+        Assert.False(migrated.Processing.LimiterEnabled);
+
+        Assert.True(migrated.FirstRunCompleted);
+        Assert.Equal("virtual-source-v2", migrated.SourceDeviceId);
+        Assert.Equal("physical-output-v2", migrated.OutputDeviceId);
+        Assert.True(migrated.StartWithWindows);
+        Assert.True(migrated.StartMinimized);
+        Assert.True(migrated.StartProcessingAutomatically);
+        Assert.False(migrated.WaitForDevicesOnStartup);
+        Assert.True(migrated.WaitForSpotifyOnStartup);
+        Assert.Equal(WindowCloseBehavior.Exit, migrated.CloseBehavior);
+        Assert.False(migrated.NotificationsEnabled);
+        Assert.False(migrated.HeadphonesSafetyMode);
+        Assert.Equal(InterfaceTheme.System, migrated.Theme);
+        Assert.Equal(InterfaceDensity.Comfortable, migrated.Density);
+        Assert.True(migrated.ReduceAnimations);
+        Assert.False(migrated.ShowLinearPercent);
+        Assert.True(migrated.DetailedDiagnostics);
+        Assert.True(migrated.Hotkeys.GlobalHotkeysEnabled);
+        Assert.Equal("Ctrl+Shift+Up", migrated.Hotkeys.IncreaseGain);
+        Assert.Equal("Ctrl+Shift+Down", migrated.Hotkeys.DecreaseGain);
+        Assert.Equal("Ctrl+Shift+B", migrated.Hotkeys.ToggleProcessing);
+        Assert.Equal("Ctrl+Shift+0", migrated.Hotkeys.PanicReset);
+        Assert.Equal("Ctrl+Shift+G", migrated.Hotkeys.ToggleBassBoost);
+        Assert.Equal("Ctrl+Shift+S", migrated.Hotkeys.ToggleWindow);
+
+        Assert.Equal("Protected precise", migrated.Profiles[0].Name);
+        Assert.Equal(AudioProtectionMode.Protected, migrated.Profiles[0].Processing.Mode);
         Assert.Equal(10.1, migrated.Profiles[0].Processing.MainGainDb);
-        Assert.Equal(75, migrated.Profiles[1].Processing.MainGainDb);
+        Assert.True(migrated.Profiles[0].Processing.CompressorEnabled);
+        Assert.True(migrated.Profiles[0].Processing.SoftClipperEnabled);
+        Assert.True(migrated.Profiles[0].Processing.LimiterEnabled);
+        Assert.Equal(74.5, migrated.Profiles[1].Processing.MainGainDb);
+        Assert.Equal(75, migrated.Profiles[2].Processing.MainGainDb);
         Assert.Equal(
             schema2,
             await File.ReadAllTextAsync(

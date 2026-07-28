@@ -25,6 +25,7 @@ test('real Auth/API gate covers all destructive transitions and cleanup', () => 
     'api_me_free_entitlement',
     'rpc_required_headers_failed',
     "for (const relation of ['profiles', 'entitlements'])",
+    'refresh_r0_direct_parent_child_mismatch',
     'refresh_r0_reuse_accepted',
     'refresh_r1_family_survived',
     'refresh_r2_family_survived',
@@ -96,12 +97,24 @@ test('WSL gate confines runtime, logs, and cleanup to temporary paths', () => {
   assert.match(finalGate, />"\$TOOL_DIR\/dotnet-build\.log"/u);
   assert.match(finalGate, /SSL_CERT_FILE="\$CERT"/u);
   assert.match(finalGate, /kill "\$API_PID"/u);
+  assert.match(finalGate,
+    /SpotifyBooster\.Api\/bin\/Release\/net8\.0\/SpotifyBooster\.Api\.dll/u);
+  assert.doesNotMatch(finalGate, /"\$DOTNET" run/u);
+  assert.match(finalGate, /if ! wait_for_api_port_release; then/u);
+  assert.match(finalGate, /validation_cleanup=api_port_remaining/u);
+  assert.match(finalGate, /if is_api_port_listening; then[\s\S]*api_start=port_in_use/u);
   assert.match(finalGate, /"\$CLI" stop --project-id "\$PROJECT_ID"/u);
   assert.match(finalGate, /find "\$TOOL_DIR" -type f -name '\*\.log' -print0/u);
+  assert.match(finalGate, /if ! find "\$TOOL_DIR"[\s\S]*>"\$log_list"/u);
+  assert.match(finalGate, /if \(\( grep_status != 1 \)\); then/u);
   assert.match(finalGate, /if ! scan_temporary_logs; then/u);
   assert.match(finalGate,
     /grep -E '\^migration_atomicity=\[a-z0-9_\]\+\$' atomicity\.log >&2/u);
-  assert.match(finalGate, /rm -rf -- "\$TOOL_DIR"/u);
+  assert.match(finalGate,
+    /if ! rm -rf -- "\$TOOL_DIR" \|\| \[\[ -e "\$TOOL_DIR" \]\]/u);
+  assert.match(finalGate,
+    /docker ps -a[\s\S]*label=com\.supabase\.cli\.project="\$PROJECT_ID"/u);
+  assert.match(finalGate, /validation_cleanup=containers_remaining/u);
   assert.doesNotMatch(finalGate, /NODE_TLS_REJECT_UNAUTHORIZED|--insecure|-k(?:\s|$)/u);
 });
 

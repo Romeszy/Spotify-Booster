@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -50,6 +51,17 @@ public sealed class EndpointIntegrationTests
         var text = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         Assert.Contains("\"code\":\"unauthorized\"", text, StringComparison.Ordinal);
         Assert.DoesNotContain("publishable-test-placeholder", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProductionStartupRequiresExplicitSupabaseConfiguration()
+    {
+        using var factory = new ProductionWithoutSupabaseFactory();
+        Exception exception = Assert.ThrowsAny<Exception>(factory.CreateClient);
+        Assert.Contains(
+            "Supabase configuration is required.",
+            exception.ToString(),
+            StringComparison.Ordinal);
     }
 
     [Theory]
@@ -179,6 +191,10 @@ public sealed class EndpointIntegrationTests
         Assert.DoesNotContain("private-database-host", problem, StringComparison.Ordinal);
         Assert.DoesNotContain(token, problem, StringComparison.Ordinal);
         Assert.DoesNotContain("stack", problem, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(factory.LogEntries, entry =>
+            entry.Category == "SpotifyBooster.Api.UnhandledException" &&
+            entry.EventId == 2103 &&
+            entry.Level == LogLevel.Error);
     }
 
     [Fact]
@@ -212,6 +228,33 @@ public sealed class EndpointIntegrationTests
         using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(calls, factory.JwksCalls);
+    }
+
+    [Fact]
+    public async Task V1GroupIsDefaultDenyWhileHealthRemainsAnonymous()
+    {
+        await using var factory = new WebApplicationFactory<Program>();
+        using var client = factory.CreateClient();
+
+        using var denied = await client.GetAsync("/v1/me",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+        using var live = await client.GetAsync("/health/live",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, live.StatusCode);
+    }
+
+    [Fact]
+    public async Task HostedStartupMakesJwksReadyWithoutPriorAuthenticatedRequest()
+    {
+        await using var factory = new AuthenticatedFactory();
+        using var client = factory.CreateClient();
+        var coordinator = factory.Services.GetRequiredService<JwksCoordinator>();
+
+        await WaitUntilAsync(() => coordinator.IsReady);
+
+        Assert.True(coordinator.IsReady);
+        Assert.Equal(1, factory.JwksCalls);
     }
 
     [Fact]
@@ -269,10 +312,29 @@ public sealed class EndpointIntegrationTests
         return request;
     }
 
+    private sealed class ProductionWithoutSupabaseFactory :
+        WebApplicationFactory<Program>
+    {
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            builder.UseEnvironment("Production");
+            builder.ConfigureAppConfiguration((_, configuration) =>
+                configuration.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Supabase:Origin"] = string.Empty,
+                    ["Supabase:PublishableKey"] = string.Empty,
+                    ["Supabase:Issuer"] = string.Empty,
+                    ["Supabase:Audience"] = string.Empty,
+                    ["Supabase:JwksPath"] = string.Empty,
+                }));
+        }
+    }
+
     private sealed class AuthenticatedFactory : WebApplicationFactory<Program>
     {
         private readonly RSA _rsa = RSA.Create(2048);
         private readonly ECDsa _ec = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        private readonly object _keySync = new();
         private readonly CaptureLoggerProvider _logs = new();
         private int _jwksCalls;
         public Guid Subject { get; } = Guid.NewGuid();
@@ -281,6 +343,7 @@ public sealed class EndpointIntegrationTests
         public bool ThrowUnexpectedDataApi { get; set; }
         public int JwksCalls => Volatile.Read(ref _jwksCalls);
         public IReadOnlyList<string> Logs => _logs.Messages;
+        public IReadOnlyList<LogEntry> LogEntries => _logs.Entries;
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -356,17 +419,25 @@ public sealed class EndpointIntegrationTests
             if (notBefore is not null) claims["nbf"] = notBefore.Value.ToUnixTimeSeconds();
             var payload = Encode(JsonSerializer.SerializeToUtf8Bytes(claims));
             var input = Encoding.ASCII.GetBytes(header + "." + payload);
-            var signature = algorithm == "RS256"
-                ? (signer ?? _rsa).SignData(input, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1)
-                : (ecSigner ?? _ec).SignData(input, HashAlgorithmName.SHA256,
-                    DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+            byte[] signature;
+            lock (_keySync)
+                signature = algorithm == "RS256"
+                    ? (signer ?? _rsa).SignData(input, HashAlgorithmName.SHA256,
+                        RSASignaturePadding.Pkcs1)
+                    : (ecSigner ?? _ec).SignData(input, HashAlgorithmName.SHA256,
+                        DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
             return header + "." + payload + "." + Encode(signature);
         }
 
         private string Jwks()
         {
-            var rsa = _rsa.ExportParameters(false);
-            var ec = _ec.ExportParameters(false);
+            RSAParameters rsa;
+            ECParameters ec;
+            lock (_keySync)
+            {
+                rsa = _rsa.ExportParameters(false);
+                ec = _ec.ExportParameters(false);
+            }
             return JsonSerializer.Serialize(new
             {
                 keys = new object[]
@@ -411,13 +482,16 @@ public sealed class EndpointIntegrationTests
         private sealed class CaptureLoggerProvider : ILoggerProvider
         {
             private readonly System.Collections.Concurrent.ConcurrentQueue<string> _messages = new();
+            private readonly System.Collections.Concurrent.ConcurrentQueue<LogEntry> _entries = new();
             public IReadOnlyList<string> Messages => _messages.ToArray();
+            public IReadOnlyList<LogEntry> Entries => _entries.ToArray();
             public ILogger CreateLogger(string categoryName) =>
-                new CaptureLogger(categoryName, _messages);
+                new CaptureLogger(categoryName, _messages, _entries);
             public void Dispose() { }
             private sealed class CaptureLogger(
                 string category,
-                System.Collections.Concurrent.ConcurrentQueue<string> messages) : ILogger
+                System.Collections.Concurrent.ConcurrentQueue<string> messages,
+                System.Collections.Concurrent.ConcurrentQueue<LogEntry> entries) : ILogger
             {
                 public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
                 public bool IsEnabled(LogLevel logLevel) => true;
@@ -431,8 +505,20 @@ public sealed class EndpointIntegrationTests
                     messages.Enqueue(
                         $"{category}|{logLevel}|{eventId.Id}|{formatter(state, exception)}|" +
                         $"{structured}|{exception}");
+                    entries.Enqueue(new(category, logLevel, eventId.Id,
+                        formatter(state, exception), exception));
                 }
             }
         }
+    }
+
+    public sealed record LogEntry(string Category, LogLevel Level, int EventId,
+        string Message, Exception? Exception);
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (var attempt = 0; attempt < 200 && !condition(); attempt++)
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        Assert.True(condition());
     }
 }

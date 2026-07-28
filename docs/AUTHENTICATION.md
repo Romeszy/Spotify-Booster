@@ -86,9 +86,14 @@ e-mail, donnée Stripe ou configuration. Une absence d’identité retourne `401
 une dépendance Data API invalide ou indisponible retourne `503`. Les erreurs
 utilisent un Problem Details expurgé avec `code` et `traceId`.
 
-`/v1/me` limite à 30 requêtes par minute et subject authentifié. Une requête
-sans subject valide est limitée à 10 requêtes par minute et adresse distante.
-Un dépassement retourne `429` avec `Retry-After` et Problem Details expurgé.
+Toutes les routes `/v1` appliquent d’abord, avant validation JWT, un plafond
+d’entrée distinct de 120 requêtes par minute et adresse distante. Après
+authentification, `/v1/me` reste limité à 30 requêtes par minute et subject
+authentifié ; une requête sans subject valide est limitée à 10 requêtes par
+minute et adresse distante. Un dépassement de l’un de ces plafonds retourne
+`429` avec `Retry-After` et Problem Details expurgé. Les quotas distribués et
+la confiance d’un proxy dans l’adresse cliente restent différés avant
+production.
 
 Le RPC aval `spotify_booster_me_v1()` n’accepte aucun `user_id` client. Il
 résout le sujet par `auth.uid()` sous le rôle `authenticated`, avec
@@ -99,6 +104,10 @@ ASP.NET Core avec un runtime Linux `8.0.423` temporaire, une CA fournie
 uniquement par `SSL_CERT_FILE`, puis traverse `/v1/me`, JWKS, Data API et RLS
 sans mock ni callback TLS permissif.
 
+Le service hébergé amorce le JWKS dès le démarrage à froid, sans attendre une
+requête authentifiée. Toutes les routes du groupe `/v1` exigent par défaut le
+schéma Supabase ; les routes `/health` restent explicitement anonymes.
+
 L’E2E crée deux utilisateurs jetables et contrôle les deux headers
 request-scoped du client Data API, le profil expurgé, l’entitlement Free et
 l’absence d’IDOR. Il prouve également le minimum serveur 9/10 caractères,
@@ -107,10 +116,11 @@ d’accès déjà émis jusqu’à `exp`.
 
 Supabase Auth `2.109.1` autorise volontairement la réutilisation du parent
 direct d’un refresh actif pour récupérer une réponse perdue. Le rejeu compromis
-est donc prouvé par `R0 -> R1 -> R2`, puis réutilisation de `R0` devenu
-grand-parent : `R0` est refusé et la famille entière est révoquée ; `R1` et
-`R2` ne maintiennent aucune session. Ce détail de version n’est pas assimilé à
-une permission générale de réutiliser les refresh tokens.
+est donc testé en deux temps : après `R0 -> R1`, une nouvelle utilisation de
+`R0` doit retourner exactement l’enfant actif `R1`; après `R1 -> R2`, la
+réutilisation de `R0` devenu grand-parent est refusée et la famille entière est
+révoquée ; `R1` et `R2` ne maintiennent aucune session. Ce détail de version
+n’est pas assimilé à une permission générale de réutiliser les refresh tokens.
 
 ## Différé
 

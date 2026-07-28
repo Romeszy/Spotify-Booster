@@ -46,7 +46,7 @@ La suite `backend/supabase/tests/001_schema_and_rls.test.sql` couvre notamment :
   `spotify_booster_me_v1()` ;
 - absence des tables différées.
 
-La voie base a obtenu `110/110` assertions pgTAP depuis un reset propre. Le
+La voie base a obtenu `111/111` assertions pgTAP depuis un reset propre. Le
 test backend réel `npm run test:e2e:auth-api` crée deux utilisateurs locaux,
 traverse le vrai endpoint ASP.NET `/v1/me`, appelle
 le RPC en TLS avec leurs bearers distincts, vérifie l’isolation A/B, puis

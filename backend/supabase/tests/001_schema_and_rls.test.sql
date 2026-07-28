@@ -1,6 +1,10 @@
 begin;
 
-select plan(110);
+set local role postgres;
+create extension if not exists pgtap with schema extensions;
+set local search_path = public, extensions, pgtap, auth, pg_catalog;
+
+select plan(111);
 
 select has_table('public', 'profiles', 'profiles exists');
 select has_table('public', 'entitlements', 'entitlements exists');
@@ -42,6 +46,7 @@ select is((select provolatile from pg_proc where oid='public.spotify_booster_hea
 select is((select proparallel from pg_proc where oid='public.spotify_booster_health_v1()'::regprocedure), 's'::"char", 'health is parallel safe');
 select is((select prosecdef from pg_proc where oid='public.spotify_booster_health_v1()'::regprocedure), false, 'health is security invoker');
 select is((select proconfig from pg_proc where oid='public.spotify_booster_health_v1()'::regprocedure), array['search_path=pg_catalog']::text[], 'health search_path is fixed');
+select is((select pg_get_userbyid(proowner) from pg_proc where oid='public.spotify_booster_health_v1()'::regprocedure), 'postgres', 'health has the expected owner');
 select ok((select not exists (select 1 from aclexplode(coalesce(proacl, acldefault('f', proowner))) where grantee = 0 and privilege_type = 'EXECUTE') from pg_proc where oid='public.spotify_booster_health_v1()'::regprocedure), 'PUBLIC cannot execute health');
 select ok(has_function_privilege('anon', 'public.spotify_booster_health_v1()', 'EXECUTE'), 'anon executes health');
 select ok(has_function_privilege('authenticated', 'public.spotify_booster_health_v1()', 'EXECUTE'), 'authenticated executes health');
@@ -83,7 +88,7 @@ select results_eq('select user_id from public.profiles order by user_id', $$valu
 select results_eq('select user_id from public.entitlements order by user_id', $$values ('00000000-0000-0000-0000-00000000000a'::uuid)$$, 'A reads only own entitlement');
 select lives_ok($$update public.profiles set display_name='Alice' where user_id='00000000-0000-0000-0000-00000000000a'$$, 'A updates own display name');
 select results_eq($$update public.profiles set display_name='Stolen' where user_id='00000000-0000-0000-0000-00000000000b' returning user_id$$, $$select null::uuid where false$$, 'A cannot update B');
-reset role;
+set local role postgres;
 
 select ok((select updated_at > created_at from public.profiles where user_id='00000000-0000-0000-0000-00000000000a'), 'profile timestamp assigned server-side');
 select throws_ok($$update public.entitlements set revision=revision where user_id='00000000-0000-0000-0000-00000000000a'$$, '22000', 'entitlement_revision_must_increment_once', 'same revision rejected');
@@ -95,7 +100,7 @@ select throws_ok($$update public.entitlements set plan='free', valid_until=now()
 set local role spotify_booster_entitlement_writer;
 set local search_path = public, extensions, pg_catalog;
 update public.entitlements set plan='pro', valid_until=issued_at+interval '30 days', revision=revision+1 where user_id='00000000-0000-0000-0000-00000000000a';
-reset role;
+set local role postgres;
 select is((select revision from public.entitlements where user_id='00000000-0000-0000-0000-00000000000a'), 2::bigint, 'writer increments exactly once');
 select ok((select updated_at > created_at from public.entitlements where user_id='00000000-0000-0000-0000-00000000000a'), 'entitlement timestamp assigned server-side');
 

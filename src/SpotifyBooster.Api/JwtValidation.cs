@@ -1,6 +1,10 @@
+using System.Net;
 using System.Security.Claims;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.Extensions.Options;
 
 namespace SpotifyBooster.Api;
 
@@ -99,21 +103,35 @@ public sealed class SupabaseJwtValidator
     }
 }
 
-public sealed class SupabaseAuthenticationMiddleware(RequestDelegate next)
+public sealed class SupabaseAuthenticationHandler(
+    IOptionsMonitor<AuthenticationSchemeOptions> options,
+    ILoggerFactory logger,
+    UrlEncoder encoder,
+    SupabaseJwtValidator validator)
+    : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
-    public async Task InvokeAsync(HttpContext context, SupabaseJwtValidator validator)
+    public const string SchemeName = "Supabase";
+
+    protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
-        if (context.Request.Path.StartsWithSegments("/health"))
-        {
-            await next(context).ConfigureAwait(false);
-            return;
-        }
-        var authorization = context.Request.Headers.Authorization.ToString();
-        if (authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-        {
-            var result = await validator.ValidateAsync(authorization[7..].Trim(), context.RequestAborted).ConfigureAwait(false);
-            if (result.Succeeded) context.User = result.Principal!;
-        }
-        await next(context).ConfigureAwait(false);
+        if (Request.Path.StartsWithSegments("/health"))
+            return AuthenticateResult.NoResult();
+
+        var authorization = Request.Headers.Authorization.ToString();
+        if (!authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            return AuthenticateResult.NoResult();
+
+        var result = await validator.ValidateAsync(authorization[7..].Trim(),
+            Context.RequestAborted).ConfigureAwait(false);
+        return result.Succeeded
+            ? AuthenticateResult.Success(new AuthenticationTicket(result.Principal!, SchemeName))
+            : AuthenticateResult.Fail("Bearer token rejected.");
+    }
+
+    protected override Task HandleChallengeAsync(AuthenticationProperties properties)
+    {
+        Response.StatusCode = (int)HttpStatusCode.Unauthorized;
+        return ProblemWriter.WriteAsync(Context, StatusCodes.Status401Unauthorized,
+            "unauthorized", "Unauthorized");
     }
 }

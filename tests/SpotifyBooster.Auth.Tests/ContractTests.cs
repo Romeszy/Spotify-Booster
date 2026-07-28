@@ -14,29 +14,40 @@ public sealed class ContractTests
     [Fact]
     public void SessionDiagnosticsAndJsonNeverExposeOpaqueTokens()
     {
-        var session = new AuthSessionContract(new(Guid.NewGuid(), "u@example.test", true),
+        Guid userId = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
+        const string email = "session-user@example.test";
+        var session = new AuthSessionContract(new(userId, email, true),
             DateTimeOffset.Parse("2026-01-01T00:00:00Z"), "access-secret", "refresh-secret");
         var text = session.ToString();
         var json = JsonSerializer.Serialize(session);
         Assert.DoesNotContain("access-secret", text, StringComparison.Ordinal);
         Assert.DoesNotContain("refresh-secret", text, StringComparison.Ordinal);
+        Assert.DoesNotContain(userId.ToString(), text, StringComparison.Ordinal);
+        Assert.DoesNotContain(email, text, StringComparison.Ordinal);
         Assert.DoesNotContain("access-secret", json, StringComparison.Ordinal);
         Assert.DoesNotContain("refresh-secret", json, StringComparison.Ordinal);
+        Assert.Equal(AuthSessionPurpose.Standard, session.Purpose);
     }
 
     [Fact]
     public void PasswordRequestDiagnosticsAreAlwaysRedacted()
     {
         const string password = "secret-password-value";
+        const string email = "sensitive-user@example.test";
+        Guid userId = Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee");
         object[] requests =
         [
-            new SignUpRequest("u@example.test", password),
-            new SignInRequest("u@example.test", password),
+            new AuthUserContract(userId, email, true),
+            new SignUpRequest(email, password),
+            new SignInRequest(email, password),
+            new PasswordResetRequest(email),
             new UpdatePasswordRequest(password)
         ];
         foreach (var request in requests)
         {
             Assert.DoesNotContain(password, request.ToString(), StringComparison.Ordinal);
+            Assert.DoesNotContain(email, request.ToString(), StringComparison.Ordinal);
+            Assert.DoesNotContain(userId.ToString(), request.ToString(), StringComparison.Ordinal);
             Assert.DoesNotContain(password, JsonSerializer.Serialize(request), StringComparison.Ordinal);
         }
     }
@@ -109,6 +120,47 @@ public sealed class ContractTests
             DateTimeOffset.UtcNow.AddMinutes(-1), false, features).IsFeatureEnabled(CommercialFeature.ExpertMode));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ProWithoutBoundedExpirationNeverGrantsFeature(bool offlineGraceActive)
+    {
+        var entitlement = new EntitlementContract(
+            true,
+            CommercialPlan.Pro,
+            SubscriptionStatus.Active,
+            null,
+            offlineGraceActive,
+            new HashSet<CommercialFeature> { CommercialFeature.ExpertMode });
+
+        Assert.False(entitlement.IsFeatureEnabled(
+            CommercialFeature.ExpertMode,
+            DateTimeOffset.Parse("2026-07-28T12:00:00Z")));
+    }
+
+    [Fact]
+    public void OfflineGraceFlagCannotExtendAnExpiredEntitlement()
+    {
+        DateTimeOffset expiration = DateTimeOffset.Parse("2026-07-28T12:00:00Z");
+        var entitlement = new EntitlementContract(
+            true,
+            CommercialPlan.Pro,
+            SubscriptionStatus.PastDue,
+            expiration,
+            true,
+            new HashSet<CommercialFeature> { CommercialFeature.ExpertMode });
+
+        Assert.True(entitlement.IsFeatureEnabled(
+            CommercialFeature.ExpertMode,
+            expiration.AddTicks(-1)));
+        Assert.False(entitlement.IsFeatureEnabled(
+            CommercialFeature.ExpertMode,
+            expiration));
+        Assert.False(entitlement.IsFeatureEnabled(
+            CommercialFeature.ExpertMode,
+            expiration.AddTicks(1)));
+    }
+
     [Fact]
     public void UnknownSubscriptionAndFeatureValuesFailClosed()
     {
@@ -126,6 +178,23 @@ public sealed class ContractTests
         Assert.False(entitlement.IsFeatureEnabled(
             CommercialFeature.ExpertMode,
             DateTimeOffset.UnixEpoch));
+    }
+
+    [Fact]
+    public void UnknownFeatureFailsClosedWhenEntitlementIsOtherwiseEligible()
+    {
+        var unknownFeature = (CommercialFeature)int.MaxValue;
+        var entitlement = new EntitlementContract(
+            true,
+            CommercialPlan.Pro,
+            SubscriptionStatus.Active,
+            DateTimeOffset.Parse("2026-07-29T12:00:00Z"),
+            false,
+            new HashSet<CommercialFeature> { unknownFeature });
+
+        Assert.False(entitlement.IsFeatureEnabled(
+            unknownFeature,
+            DateTimeOffset.Parse("2026-07-29T11:00:00Z")));
     }
 
     [Fact]

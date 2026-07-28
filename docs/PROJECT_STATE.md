@@ -1,13 +1,14 @@
 # État du projet
 
-Date de mise à jour : 28 juillet 2026.
+Date de mise à jour : 29 juillet 2026.
 
 ## Synthèse
 
 Spotify Booster possède un desktop audio WPF testable et une fondation
 commerciale Phase A intégrée dans la solution. Les implémentations API, Auth,
-base/RLS et DSP/V3 existent. Aucun environnement commercial ou paiement réel
-n’est livré.
+base/RLS et DSP/V3 existent. Le schéma PostgreSQL Phase A est déployé sur le
+projet Supabase hébergé ; l’API applicative, SMTP, le domaine, les opérations
+de production et le paiement réel ne sont pas déployés.
 
 ## Opérationnel et vérifié par voie
 
@@ -16,17 +17,17 @@ n’est livré.
 | Desktop/Audio | énumération, route, moteur, métriques, récupération | Audio `27` tests |
 | DSP | pipeline modulaire, stabilité numérique, `+75 dB` | DSP `90` tests |
 | Core/Infrastructure | validation V3, migration V1/V2, persistance | Core `90` tests |
-| API | JWT/JWKS borné à 32 clés, `/health/*`, `/v1/me`, rate limiting, métriques | API `94/94` tests |
-| Auth | contrats, appels Supabase, refresh/logout, redaction | Auth `45` tests |
-| Tooling Node | bootstrap/assets locaux, gate E2E et atomicité | Node `18/18`, lint réussi, audit `0` |
-| PostgreSQL/RLS | schéma, grants, policies, triggers, RPC health/me | pgTAP `110/110`, atomicité et E2E Auth/API TLS réussis |
+| API | JWT/JWKS borné à 32 clés, `/health/*`, `/v1/me`, rate limiting pré/post-auth, métriques | API `105/105` tests |
+| Auth | contrats, appels Supabase, refresh/logout, redaction | Auth `54/54` tests |
+| Tooling Node | bootstrap/assets locaux, gate E2E et atomicité | `24` tests sur Windows/WSL, lint réussi, audit `0` |
+| PostgreSQL/RLS | schéma, grants, policies, triggers, RPC health/me | distant lié et local racine `128/128` ; gate WSL `111/111`, atomicité et E2E Auth/API TLS réussis |
 
 La restauration verrouillée et le build Release des 13 projets réussissent
-avec `0` avertissement et `0` erreur. Le test complet réussit `346/346`
-(Audio `27`, Core `90`, DSP `90`, Auth `45`, API `94`). Pour la voie
+avec `0` avertissement et `0` erreur. Le test complet réussit `366/366`
+(Audio `27`, Core `90`, DSP `90`, Auth `54`, API `105`). Pour la voie
 API/backend actuelle, la CLI Supabase exacte `2.109.1`,
 Node contrôlé avant `npm ci --offline`, le démarrage, deux resets depuis zéro,
-le lint PostgreSQL, pgTAP `110/110`, l’atomicité du runner, l’E2E Auth/API réel
+le lint PostgreSQL, pgTAP `111/111`, l’atomicité du runner, l’E2E Auth/API réel
 à deux utilisateurs, la panne/récupération readiness et la lecture JWKS avec
 `curl --cacert` ont réussi sous WSL avec CA explicite. Le gate renforcé fixe
 l’archive officielle du SDK Linux `8.0.423` et son SHA-512 avant extraction,
@@ -39,19 +40,39 @@ autres logs temporaires. Stack, API,
 SDK Linux temporaire, utilisateurs et logs temporaires ont ensuite été
 supprimés.
 
+Le déploiement Supabase distant Phase A est vérifié : les migrations
+`20260728234203` et `20260728235312` sont alignées, avec la baseline immuable
+au SHA-256
+`11C3259D389CC8DEB77B9819407CBF2EF1B1788C148B548B302138D23A2C47FD`.
+Le dry-run n’a annoncé que la nouvelle migration, puis le push a réussi. Le
+lint distant est propre, pgTAP réussit `128/128` sur le projet lié et
+`128/128` depuis la racine locale, tandis que le gate backend WSL reste vert à
+`111/111` avec son E2E. Le contrôle privilégié utilise
+`SET LOCAL ROLE postgres` avec le rôle CLI éphémère dans une transaction
+annulée par rollback. L’avertissement de cache `pg-delta` est non bloquant.
+
 Les audits NuGet et npm ne détectent aucune vulnérabilité. L’audit NuGet des
 packages dépréciés remonte toutefois des transitifs `5.0.0` hérités de
 `xunit.v3` `3.2.2` dans les projets de tests
 (`Microsoft.NETCore.Platforms`, `System.Security.AccessControl` et, selon le
 projet, `System.Diagnostics.DiagnosticSource`). Cet avertissement amont reste
 à surveiller ; aucune substitution transitive non validée n’est revendiquée.
+L’audit `--outdated` a aussi été analysé : les upgrades directs proposés vers
+ASP.NET Core `10.0.10` nécessitent la migration .NET 10 explicitement différée,
+et les mises à jour transitives ne sont pas forcées. Le lock npm audité a le
+SHA-256
+`3ba35759b1d1b8adfe828a00d751f5a4ced1c562c86a3159f470df27b5739e46`.
 
 ## Implémenté Phase A
 
 - `SpotifyBooster.Contracts`, `SpotifyBooster.Auth` et `SpotifyBooster.Api` ;
 - JWT `RS256`/`ES256`, cache JWKS 10 minutes borné à 32 clés, gates 60 secondes
-  et fail-closed ;
-- endpoints `GET /health/live`, `GET /health/ready`, `GET /v1/me` ;
+  et fail-closed, y compris exception transport inattendue, timeout tardif,
+  wraparound fatal et sauts d’horloge murale ;
+- plafond d’entrée `/v1` distinct de `120` requêtes/minute/adresse avant
+  validation JWT, puis quotas `30`/subject et `10`/adresse après validation ;
+- endpoints `GET /health/live`, `GET /health/ready`, `GET /v1/me`, avec
+  bootstrap JWKS à froid et groupe `/v1` protégé par défaut ;
 - Data API avec bearer par requête et vérification du subject ;
 - migrations `profiles`, `entitlements`, triggers, RLS, RPC health et RPC
   `/v1/me` JWT-scoped sans argument d’identité ;
@@ -61,22 +82,33 @@ projet, `System.Diagnostics.DiagnosticSource`). Cet avertissement amont reste
 - suppression du clamp DSP caché `±64` et assainissement NaN/Inf.
 - abstractions Auth/entitlement/update placées dans `Core/Abstractions`, avec
   modèles wire indépendants dans Contracts ;
-- entitlement `canceled` maintenu jusqu’à la fin de période exacte, puis
-  désactivé ;
+- entitlement Pro toujours borné par une échéance effective ; `canceled` est
+  maintenu jusqu’à cette échéance exacte, puis désactivé, et le drapeau de
+  grâce seul n’accorde aucun droit ;
 - preuve V3 du rejet de `ExpertModeAcknowledged` obsolète et du rechargement
   idempotent après migration ;
 - récupération finie ciblée des états compresseur et limiteur après NaN/Inf.
+- sessions de récupération Auth distinguées, options réseau bornées et logout
+  concurrent sérialisé ; la révocation distante est tentée même si
+  l’effacement local échoue, puis l’échec persistant est rapporté explicitement
+  au lieu d’être annoncé comme réussi ;
+- artifact WPF portable republié puis contrôlé par allowlist et scan de secrets.
+- contrat Auth `2.109.1` prouvé séparément pour récupération du parent direct
+  et révocation de famille au rejeu du grand-parent ;
+- `/v1/me` documenté comme projection d’entitlement Phase A, sans revendiquer
+  l’évaluation Stripe, validité/grâce ou feature gating différée.
 
 ## Fonctionne seulement localement ou comme contrat
 
-- Supabase est une stack de développement Docker, pas un déploiement ;
+- le schéma Supabase Phase A est hébergé, mais l’API applicative reste locale ;
 - l’adaptateur Auth n’est pas branché aux vues WPF ;
 - les sessions ne sont pas persistées ;
 - les contrats entitlement/update n’ont pas de service desktop concret ;
 - le rôle writer d’entitlements est `NOLOGIN`, sans endpoint ;
 - la RPC health teste seulement un chemin Data API constant ;
 - l’E2E backend prouve le vrai processus API local, Auth, JWKS, Data API et
-  RLS ; ce n’est pas une preuve d’hébergement externe ou de production.
+  RLS ; ce n’est pas une preuve de déploiement de l’API applicative ni
+  d’exploitation en production.
 
 ## Non implémenté
 
@@ -87,7 +119,8 @@ projet, `System.Diagnostics.DiagnosticSource`). Cet avertissement amont reste
 - table devices et révocation de device ;
 - updater, mandatory update et métadonnées signées ;
 - Authenticode, .NET 10 et release commerciale ;
-- production Supabase/API, SMTP, domaine, sauvegardes opérationnelles ;
+- API applicative hébergée, SMTP, domaine, sauvegardes et opérations de
+  production ;
 - télémétrie ou trafic réseau du moteur audio.
 
 ## Validation manuelle encore requise
@@ -113,5 +146,8 @@ projet, `System.Diagnostics.DiagnosticSource`). Cet avertissement amont reste
 
 ## Prochaine étape
 
-Exécuter la checklist manuelle Phase A. La Phase B commencera par une ADR
-Stripe et le writer privilégié ; elle ne doit pas être amorcée dans ce gate.
+Préparer une préversion technique limitée : exécuter la checklist manuelle
+Phase A, déployer l’API applicative dans un environnement de préversion et
+valider son intégration avec le schéma Supabase hébergé. La Phase B commencera
+par une ADR Stripe et le writer privilégié ; elle ne doit pas être amorcée
+pendant cette préversion.

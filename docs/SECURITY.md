@@ -7,11 +7,14 @@
 - aucune élévation de privilège pour l’application ;
 - aucun trafic réseau dans le callback audio ;
 - JWT limités à `RS256`/`ES256` et validation fail-closed ;
+- amorçage JWKS obligatoire au démarrage et groupe `/v1` default-deny ;
 - RLS forcée sur profils et entitlements ;
 - bearer et clé publiable portés par requête, jamais par headers globaux ;
 - réponses réseau bornées, timeouts finis et redirections refusées ;
 - réglages locaux validés et écrits atomiquement ;
 - logs et Problem Details expurgés ;
+- erreurs serveur inattendues journalisées par EventId fixe, sans exception,
+  URL, identité ni secret ;
 - Supabase CLI locale exacte `2.109.1`, jamais substituée par une CLI globale.
 
 Ces contrôles sont implémentés par voie. Le gate d’intégration final et la revue
@@ -104,6 +107,14 @@ de `xunit.v3` `3.2.2` dans les projets de tests :
 tests DSP/Auth/API, `System.Diagnostics.DiagnosticSource`. Il s’agit d’un
 avertissement amont à surveiller, pas d’une correction locale prouvée ; ne pas
 forcer une substitution transitive sans validation de la chaîne xUnit.
+
+L’analyse `dotnet list package --outdated --include-transitive` du 29 juillet
+2026 propose principalement ASP.NET Core `10.0.10` pour les deux dépendances
+directes API et des versions plus récentes de transitifs de test. Ces upgrades
+ne sont pas appliqués aveuglément : ASP.NET Core 10 exige la migration .NET 10
+déjà différée avant commercialisation, et les transitifs restent pilotés par
+leurs packages directs. Le lock npm audité (`0` vulnérabilité) a le SHA-256
+`3ba35759b1d1b8adfe828a00d751f5a4ced1c562c86a3159f470df27b5739e46`.
 
 Ne jamais utiliser `npm audit fix` ou une mise à jour aveugle dans le gate.
 Versions et licences sont inventoriées dans

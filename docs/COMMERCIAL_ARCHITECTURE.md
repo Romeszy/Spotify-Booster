@@ -69,7 +69,7 @@ applicative.
 
 | Phase | Portée |
 | --- | --- |
-| A — actuelle | contrats, Auth testable, API/JWKS, schéma/RLS local, V3, `+75 dB` |
+| A — actuelle | contrats, Auth/API testables, schéma/RLS local et hébergé, V3, `+75 dB` |
 | B — différée | Stripe Checkout/Portal/webhooks et writer d’entitlements |
 | C — différée | écrans WPF, DPAPI, licence hors ligne signée et devices |
 | D — différée | updater signé et politique de mise à jour obligatoire |
@@ -79,10 +79,12 @@ Les contrats des phases suivantes stabilisent les interfaces. Ils n’accordent
 aucun droit Pro et ne déclenchent aucun paiement ou téléchargement.
 
 Le statut commercial futur `canceled` conserve Pro uniquement avant
-`EntitlementExpiresAt` lorsque cette fin de période existe. À l’instant exact
-d’expiration et après, l’accès est désactivé. Cette règle est évaluée dans le
-contrat d’entitlement central, jamais par comparaison directe d’une chaîne
-Stripe dans un appelant.
+`EntitlementExpiresAt`. Cette échéance est toujours requise pour un droit Pro
+effectif et représente la fin définitive, grâce bornée incluse. Le booléen
+`IsOfflineGraceActive` reste informatif et n’accorde aucun droit sans cette
+échéance. À l’instant exact d’expiration et après, l’accès est désactivé. Cette
+règle est évaluée dans le contrat d’entitlement central, jamais par comparaison
+directe d’une chaîne Stripe dans un appelant.
 
 ## Rollback
 

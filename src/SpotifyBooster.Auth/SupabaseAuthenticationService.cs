@@ -16,7 +16,9 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService, IDis
     private readonly object _refreshSync = new();
     private readonly object _lifecycleSync = new();
     private Task<AuthSessionContract>? _refreshTask;
+    private Task<SignOutResult>? _signOutTask;
     private bool _signingOut;
+    private bool _localSessionInvalidated;
     private long _lifecycleEpoch;
 
     public SupabaseAuthenticationService(SupabaseAuthOptions options, IAuthSessionStore store)
@@ -52,7 +54,7 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService, IDis
     public async Task<AuthSessionContract> SignInAsync(SignInRequest request, CancellationToken cancellationToken = default)
     {
         ValidatePassword(request.Password);
-        var epoch = CaptureActiveEpoch();
+        var epoch = CaptureActiveEpoch(allowLocalSessionInvalidated: true);
         var response = await SendAsync(HttpMethod.Post, "auth/v1/token?grant_type=password",
             new { email = request.Email, password = request.Password }, null, cancellationToken).ConfigureAwait(false);
         var session = ToContract(response);
@@ -61,6 +63,7 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService, IDis
         {
             EnsureEpochIsCurrent(epoch);
             await _store.WriteAsync(session, cancellationToken).ConfigureAwait(false);
+            ActivateSession(epoch);
             return session;
         }
         finally { _lifecycleGate.Release(); }
@@ -68,35 +71,75 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService, IDis
 
     public async Task<SignOutResult> SignOutAsync(CancellationToken cancellationToken = default)
     {
+        Task<SignOutResult> shared;
         lock (_lifecycleSync)
         {
-            if (_signingOut)
-                return new(RemoteRevocation.NotAttempted);
-            _signingOut = true;
-            _lifecycleEpoch = checked(_lifecycleEpoch + 1);
+            if (_signOutTask is null)
+            {
+                _signingOut = true;
+                _localSessionInvalidated = true;
+                _lifecycleEpoch = checked(_lifecycleEpoch + 1);
+                _signOutTask = SignOutCoreAsync(cancellationToken);
+            }
+            shared = _signOutTask;
         }
+        try { return await shared.ConfigureAwait(false); }
+        finally
+        {
+            if (shared.IsCompleted)
+                lock (_lifecycleSync)
+                    if (ReferenceEquals(_signOutTask, shared)) _signOutTask = null;
+        }
+    }
+
+    private async Task<SignOutResult> SignOutCoreAsync(CancellationToken cancellationToken)
+    {
         await _lifecycleGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         try
         {
             var session = await _store.ReadAsync(CancellationToken.None).ConfigureAwait(false);
             if (session is null)
-                return new(RemoteRevocation.NotAttempted);
-            await _store.WriteAsync(null, CancellationToken.None).ConfigureAwait(false);
+                return new(RemoteRevocation.NotAttempted,
+                    await TryClearLocalSessionAsync().ConfigureAwait(false));
+
+            var localSignOut = await TryClearLocalSessionAsync().ConfigureAwait(false);
+            var remoteRevocation = RemoteRevocation.Failed;
             try
             {
-                await SendWithoutBodyAsync(HttpMethod.Post, "auth/v1/logout?scope=local",
-                    session.AccessToken, cancellationToken).ConfigureAwait(false);
-                return new(RemoteRevocation.Succeeded);
+                try
+                {
+                    await SendWithoutBodyAsync(HttpMethod.Post, "auth/v1/logout?scope=local",
+                        session.AccessToken, cancellationToken).ConfigureAwait(false);
+                    remoteRevocation = RemoteRevocation.Succeeded;
+                }
+                catch (HttpRequestException) { }
+                catch (AuthenticationException) { }
+                catch (OperationCanceledException) { }
             }
-            catch (HttpRequestException) { return new(RemoteRevocation.Failed); }
-            catch (AuthenticationException) { return new(RemoteRevocation.Failed); }
-            catch (OperationCanceledException) { return new(RemoteRevocation.Failed); }
+            finally
+            {
+                if (localSignOut == LocalSignOut.Failed)
+                    localSignOut = await TryClearLocalSessionAsync().ConfigureAwait(false);
+            }
+            return new(remoteRevocation, localSignOut);
         }
         finally
         {
-            await _store.WriteAsync(null, CancellationToken.None).ConfigureAwait(false);
             lock (_lifecycleSync) _signingOut = false;
             _lifecycleGate.Release();
+        }
+    }
+
+    private async Task<LocalSignOut> TryClearLocalSessionAsync()
+    {
+        try
+        {
+            await _store.WriteAsync(null, CancellationToken.None).ConfigureAwait(false);
+            return LocalSignOut.Completed;
+        }
+        catch (Exception)
+        {
+            return LocalSignOut.Failed;
         }
     }
 
@@ -124,7 +167,7 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService, IDis
                 ?? throw new InvalidOperationException("No active session.");
             var response = await SendAsync(HttpMethod.Post, "auth/v1/token?grant_type=refresh_token",
                 new { refresh_token = current.RefreshToken }, null, CancellationToken.None).ConfigureAwait(false);
-            var updated = ToContract(response);
+            var updated = ToContract(response) with { Purpose = current.Purpose };
             EnsureEpochIsCurrent(epoch);
             await _store.WriteAsync(updated, CancellationToken.None).ConfigureAwait(false);
             return updated;
@@ -153,11 +196,17 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService, IDis
             var epoch = CaptureActiveEpoch();
             var session = await _store.ReadAsync(cancellationToken).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("No active session.");
+            if (session.Purpose != AuthSessionPurpose.PasswordRecovery)
+                throw new InvalidOperationException(
+                    "Password updates require a recovery session.");
             if (session.AccessTokenExpiresAt <= DateTimeOffset.UtcNow)
                 throw new InvalidOperationException("The active session has expired.");
             await SendAsync(HttpMethod.Put, "auth/v1/user", new { password = request.Password },
                 session.AccessToken, cancellationToken).ConfigureAwait(false);
             EnsureEpochIsCurrent(epoch);
+            await _store.WriteAsync(
+                session with { Purpose = AuthSessionPurpose.Standard },
+                cancellationToken).ConfigureAwait(false);
         }
         finally { _lifecycleGate.Release(); }
     }
@@ -165,7 +214,8 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService, IDis
     public ValueTask<AuthSessionContract?> GetSessionAsync(CancellationToken cancellationToken = default)
     {
         lock (_lifecycleSync)
-            return _signingOut ? ValueTask.FromResult<AuthSessionContract?>(null) :
+            return _signingOut || _localSessionInvalidated
+                ? ValueTask.FromResult<AuthSessionContract?>(null) :
                 _store.ReadAsync(cancellationToken);
     }
 
@@ -265,13 +315,24 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService, IDis
         _httpClient.Dispose();
     }
 
-    private long CaptureActiveEpoch()
+    private long CaptureActiveEpoch(bool allowLocalSessionInvalidated = false)
     {
         lock (_lifecycleSync)
         {
-            if (_signingOut)
+            if (_signingOut ||
+                (_localSessionInvalidated && !allowLocalSessionInvalidated))
                 throw new InvalidOperationException("Sign-out is in progress.");
             return _lifecycleEpoch;
+        }
+    }
+
+    private void ActivateSession(long epoch)
+    {
+        lock (_lifecycleSync)
+        {
+            if (_signingOut || epoch != _lifecycleEpoch)
+                throw new InvalidOperationException("Authentication lifecycle changed.");
+            _localSessionInvalidated = false;
         }
     }
 

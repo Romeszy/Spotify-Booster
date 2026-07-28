@@ -301,8 +301,18 @@ async function verifyRefreshReuse(userA) {
     sensitiveValues.push(r1.json.access_token);
 
   // Auth 2.109.1 intentionally permits one retry of the direct parent by
-  // returning the active child. Advance once so R0 is an actual replay, not
-  // that documented lost-response recovery path.
+  // returning the active child, even when the configured reuse interval is
+  // zero. Lock that lost-response recovery behavior to the pinned version.
+  const directParent = await refresh(userA.refresh);
+  ensure(directParent.status === 200,
+    `refresh_r0_direct_parent_http_${directParent.status}`);
+  ensure(directParent.json?.refresh_token === r1.json.refresh_token,
+    'refresh_r0_direct_parent_child_mismatch');
+  if (typeof directParent.json?.access_token === 'string')
+    sensitiveValues.push(directParent.json.access_token);
+
+  // Advance once so R0 becomes a grandparent and its next use is an actual
+  // replay rather than the documented direct-parent recovery path.
   const r2 = await refresh(r1.json.refresh_token);
   ensure(r2.status === 200, `refresh_r1_http_${r2.status}`);
   ensure(typeof r2.json?.refresh_token === 'string', 'refresh_r2_missing');
@@ -431,6 +441,12 @@ function verifyLogRedaction() {
   ensure(!/\brefresh_token\b/iu.test(text),
     'api_log_refresh_disclosure');
   ensure(!text.includes('@example.invalid'), 'api_log_email_disclosure');
+  ensure(!text.includes(supabaseOrigin.origin),
+    'api_log_supabase_origin_disclosure');
+  ensure(!text.includes(apiOrigin.origin),
+    'api_log_api_origin_disclosure');
+  ensure(!/System\.Net\.Http\.HttpClient/iu.test(text),
+    'api_log_http_client_category_disclosure');
   for (const value of sensitiveValues)
     ensure(!text.includes(value), 'api_log_sensitive_value_disclosure');
 }
@@ -450,13 +466,6 @@ async function observeReadiness(durationMs) {
     await new Promise(resolve => setTimeout(resolve, 500));
   }
   return counts;
-}
-
-function readinessProbeLogCount() {
-  if (!apiLogPath) return 0;
-  const text = readFileSync(apiLogPath, 'utf8');
-  return text.match(/HttpClient\.DataApiReadinessProbe\.LogicalHandler\[100\]/gu)
-    ?.length ?? 0;
 }
 
 if (process.argv.includes('--recovery-smoke')) {
@@ -518,7 +527,6 @@ if (process.argv.includes('--readiness-lifecycle-smoke')) {
     const pre = await observeReadiness(75000);
     process.stdout.write(
       `readiness_pre=ready_${pre.ready},unready_${pre.unready},other_${pre.other}\n`);
-    process.stdout.write(`readiness_pre_probe_logs=${readinessProbeLogCount()}\n`);
 
     if (pre.ready > 0) {
       const authContainer = findContainer('auth');
@@ -534,7 +542,6 @@ if (process.argv.includes('--readiness-lifecycle-smoke')) {
       const post = await observeReadiness(75000);
       process.stdout.write(
         `readiness_post=ready_${post.ready},unready_${post.unready},other_${post.other}\n`);
-      process.stdout.write(`readiness_post_probe_logs=${readinessProbeLogCount()}\n`);
     } else {
       process.stdout.write('readiness_post=skipped_pre_never_ready\n');
     }
@@ -561,9 +568,9 @@ try {
   await verifyPasswordBoundary();
   const userA = await signup(generatedEmail('a'), secret(10));
   const userB = await signup(generatedEmail('b'), secret(10));
+  await verifyInitialReadiness();
   verifyMe(await api('/v1/me', { token: userA.access }), userA, userB);
   verifyMe(await api('/v1/me', { token: userB.access }), userB, userA);
-  await verifyInitialReadiness();
   await verifyHeadersAndIdor(userA, userB);
   await verifyRefreshReuse(userA);
   await verifyLocalLogout(userB, userA);
@@ -573,6 +580,7 @@ try {
     'auth_password_boundary=ok',
     'two_user_api_me=ok',
     'data_api_headers_rls_idor=ok',
+    'refresh_direct_parent_recovery=ok',
     'refresh_reuse_family_revocation=ok',
     'local_logout_access_lifetime=ok',
     'readiness_stop_restart=ok',

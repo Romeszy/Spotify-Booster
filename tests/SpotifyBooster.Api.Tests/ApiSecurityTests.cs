@@ -209,6 +209,121 @@ public sealed class ApiSecurityTests : IDisposable
     }
 
     [Fact]
+    public async Task UnexpectedTransportExceptionCompletesJoinersAndRecoversAfterRetryGate()
+    {
+        var calls = 0;
+        using var coordinator = Coordinator((_, _) =>
+        {
+            var call = Interlocked.Increment(ref calls);
+            return call == 1
+                ? Task.FromException<HttpResponseMessage>(
+                    new InvalidOperationException("private-transport-detail"))
+                : Task.FromResult(Json(HttpStatusCode.OK, RsaJwks("recovered")));
+        });
+
+        var requests = Enumerable.Range(0, 100)
+            .Select(_ => coordinator.FindAsync("recovered",
+                TestContext.Current.CancellationToken))
+            .ToArray();
+        var results = await Task.WhenAll(requests).WaitAsync(TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+        Assert.All(results, Assert.Null);
+        Assert.Equal(1, calls);
+        Assert.False(coordinator.IsReady);
+
+        _time.Advance(TimeSpan.FromMinutes(1));
+        using var recovered = await coordinator.FindAsync("recovered",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(recovered);
+        Assert.Equal(2, calls);
+        Assert.True(coordinator.IsReady);
+    }
+
+    [Fact]
+    public async Task UnexpectedTransportExceptionHasDistinctFatalRedactedLogAndMetric()
+    {
+        const string sensitive = "private-jwks-host token@example.test";
+        var refreshes = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var metrics = new ApiMetrics();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, current) =>
+        {
+            if (ReferenceEquals(instrument, metrics.JwksRefresh))
+                current.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((_, _, tags, _) =>
+            refreshes.Enqueue(MetricLabels(tags)));
+        listener.Start();
+        var logger = new CaptureLogger<JwksCoordinator>();
+        using var client = new HttpClient(new Handler((_, _) =>
+            Task.FromException<HttpResponseMessage>(
+                new InvalidOperationException(sensitive))));
+        using var coordinator = new JwksCoordinator(client, Options(), _time, metrics, logger);
+
+        Assert.Null(await coordinator.FindAsync("missing",
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains("result=unexpected_error|trigger=cold_start", refreshes);
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Critical, entry.Level);
+        Assert.Equal(2102, entry.EventId.Id);
+        Assert.Null(entry.Exception);
+        Assert.DoesNotContain(sensitive, entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain('@', entry.Message);
+    }
+
+    [Fact]
+    public async Task UnexpectedLateTransportExceptionIsObservedAndNextAttemptRecovers()
+    {
+        var decisions = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        var staleCompletion = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var metrics = new ApiMetrics();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, current) =>
+        {
+            if (ReferenceEquals(instrument, metrics.JwksDecisions))
+                current.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((_, _, tags, _) =>
+        {
+            var decision = MetricLabels(tags);
+            decisions.Enqueue(decision);
+            if (decision == "event=stale_completion_discarded")
+                staleCompletion.TrySetResult();
+        });
+        listener.Start();
+
+        var lateResponse = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        using var client = new HttpClient(new Handler((_, _) =>
+            Interlocked.Increment(ref calls) == 1
+                ? lateResponse.Task
+                : Task.FromResult(Json(HttpStatusCode.OK, RsaJwks("recovered")))));
+        using var coordinator = new JwksCoordinator(client, Options(), _time, metrics);
+
+        var timedOut = coordinator.FindAsync("recovered",
+            TestContext.Current.CancellationToken);
+        await WaitUntilAsync(() => Volatile.Read(ref calls) == 1 && _time.TimerCount == 1);
+        _time.Advance(TimeSpan.FromSeconds(5));
+        Assert.Null(await timedOut.WaitAsync(TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken));
+
+        lateResponse.SetException(new InvalidOperationException("private-late-detail"));
+        await staleCompletion.Task.WaitAsync(TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken);
+        Assert.Contains("event=stale_completion_discarded", decisions);
+
+        _time.Advance(TimeSpan.FromMinutes(1));
+        using var recovered = await coordinator.FindAsync("recovered",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(recovered);
+        Assert.Equal(2, calls);
+        Assert.True(coordinator.IsReady);
+    }
+
+    [Fact]
     public async Task IsReadyExpirationIsPassiveAndFindStartsMandatoryExpiryLeader()
     {
         var calls = 0;
@@ -254,6 +369,7 @@ public sealed class ApiSecurityTests : IDisposable
 
         _time.Advance(TimeSpan.Zero);
         await WaitForAsync(() => Volatile.Read(ref calls) == 2);
+        await coordinator.EnsureFreshAsync(TestContext.Current.CancellationToken);
         Assert.False(coordinator.IsReady);
 
         for (var second = 0; second < 59; second++)
@@ -267,6 +383,25 @@ public sealed class ApiSecurityTests : IDisposable
         Assert.True(coordinator.IsReady);
         Assert.Equal(3, Volatile.Read(ref calls));
 
+        await service.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task BackgroundRefreshCreatesColdStartLeaderWithoutPriorLookup()
+    {
+        var calls = 0;
+        using var coordinator = Coordinator((_, _) =>
+        {
+            Interlocked.Increment(ref calls);
+            return Task.FromResult(Json(HttpStatusCode.OK, RsaJwks("startup")));
+        });
+        using var service = new JwksRefreshHostedService(coordinator, _time);
+
+        await service.StartAsync(TestContext.Current.CancellationToken);
+        await WaitForAsync(() => Volatile.Read(ref calls) == 1 && coordinator.IsReady);
+
+        Assert.Equal(1, Volatile.Read(ref calls));
+        Assert.True(coordinator.IsReady);
         await service.StopAsync(TestContext.Current.CancellationToken);
     }
 
@@ -322,6 +457,48 @@ public sealed class ApiSecurityTests : IDisposable
         _time.Advance(TimeSpan.FromMilliseconds(1));
         Assert.Null(await coordinator.FindAsync("boundary", TestContext.Current.CancellationToken));
         Assert.Equal(2, calls);
+    }
+
+    [Fact]
+    public async Task WallClockJumpsDoNotOpenMonotonicRetryGate()
+    {
+        var calls = 0;
+        using var coordinator = Coordinator((_, _) =>
+        {
+            var call = Interlocked.Increment(ref calls);
+            return Task.FromResult(call == 1
+                ? Json(HttpStatusCode.ServiceUnavailable, "{}")
+                : Json(HttpStatusCode.OK, RsaJwks("recovered")));
+        });
+
+        Assert.Null(await coordinator.FindAsync("recovered",
+            TestContext.Current.CancellationToken));
+        _time.JumpUtc(TimeSpan.FromDays(3650));
+        Assert.Null(await coordinator.FindAsync("recovered",
+            TestContext.Current.CancellationToken));
+        _time.JumpUtc(TimeSpan.FromDays(-7300));
+        Assert.Null(await coordinator.FindAsync("recovered",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1, calls);
+
+        _time.Advance(TimeSpan.FromMinutes(1));
+        using var recovered = await coordinator.FindAsync("recovered",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(recovered);
+        Assert.Equal(2, calls);
+    }
+
+    [Theory]
+    [InlineData("_epoch")]
+    [InlineData("_generation")]
+    public async Task EpochAndGenerationWraparoundAreFatal(string fieldName)
+    {
+        using var coordinator = Coordinator((_, _) =>
+            Task.FromResult(Json(HttpStatusCode.ServiceUnavailable, "{}")));
+        SetPrivateField(coordinator, fieldName, ulong.MaxValue);
+
+        await Assert.ThrowsAsync<OverflowException>(() =>
+            coordinator.PurgeAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -395,6 +572,47 @@ public sealed class ApiSecurityTests : IDisposable
     }
 
     [Fact]
+    public async Task IngressLimiterBoundsAuthenticationWorkAndPartitionsAddresses()
+    {
+        var limiter = new IngressRateLimiter(_time);
+        var nextInvocations = 0;
+        var middleware = new IngressRateLimitingMiddleware(_ =>
+        {
+            nextInvocations++;
+            return Task.CompletedTask;
+        });
+
+        for (var request = 0;
+             request < IngressRateLimiter.PermitLimitPerMinute;
+             request++)
+        {
+            var allowed = IngressContext("10.0.0.1", "/v1/me");
+            await middleware.InvokeAsync(allowed, limiter, _metrics);
+            Assert.NotEqual(
+                Microsoft.AspNetCore.Http.StatusCodes.Status429TooManyRequests,
+                allowed.Response.StatusCode);
+        }
+
+        var rejected = IngressContext("10.0.0.1", "/v1/me");
+        await middleware.InvokeAsync(rejected, limiter, _metrics);
+        Assert.Equal(
+            Microsoft.AspNetCore.Http.StatusCodes.Status429TooManyRequests,
+            rejected.Response.StatusCode);
+        Assert.Equal(
+            IngressRateLimiter.PermitLimitPerMinute,
+            nextInvocations);
+
+        var otherAddress = IngressContext("10.0.0.2", "/v1/me");
+        await middleware.InvokeAsync(otherAddress, limiter, _metrics);
+        var health = IngressContext("10.0.0.1", "/health/ready");
+        await middleware.InvokeAsync(health, limiter, _metrics);
+
+        Assert.Equal(
+            IngressRateLimiter.PermitLimitPerMinute + 2,
+            nextInvocations);
+    }
+
+    [Fact]
     public void LimiterCapacityNeverEvictsAnActiveWindow()
     {
         var limiter = new FixedWindowLimiter(_time);
@@ -422,6 +640,17 @@ public sealed class ApiSecurityTests : IDisposable
         Assert.Equal(1, limiter.Acquire("partition", 1).RetryAfterSeconds);
         _time.Advance(TimeSpan.FromMilliseconds(500));
         Assert.True(limiter.Acquire("partition", 1).Allowed);
+    }
+
+    private static Microsoft.AspNetCore.Http.DefaultHttpContext IngressContext(
+        string address,
+        string path)
+    {
+        var context = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        context.Request.Path = path;
+        context.Connection.RemoteIpAddress = IPAddress.Parse(address);
+        context.Response.Body = new MemoryStream();
+        return context;
     }
 
     [Fact]
@@ -1127,7 +1356,7 @@ public sealed class ApiSecurityTests : IDisposable
         Assert.Contains("result=http_error|trigger=expiry", labels);
         Assert.Contains("result=http_error|trigger=retry", labels);
         Assert.All(labels, label => Assert.Matches(
-            "^result=(success|timeout|http_error|invalid_document|invalidated)\\|" +
+            "^result=(success|timeout|http_error|invalid_document|unexpected_error|invalidated)\\|" +
             "trigger=(cold_start|expiry|retry|unknown_kid|admin_purge)$", label));
     }
 
@@ -1222,7 +1451,7 @@ public sealed class ApiSecurityTests : IDisposable
         Assert.Contains(refreshes, value =>
             value == "result=invalidated|trigger=cold_start");
         Assert.All(refreshes, value => Assert.Matches(
-            "^result=(success|timeout|http_error|invalid_document|invalidated)\\|" +
+            "^result=(success|timeout|http_error|invalid_document|unexpected_error|invalidated)\\|" +
             "trigger=(cold_start|expiry|retry|unknown_kid|admin_purge)$", value));
         Assert.All(decisions, value => Assert.Matches(
             "^event=(leader_created|joined_inflight|retry_gate_rejected|" +
@@ -1897,6 +2126,10 @@ public sealed class ApiSecurityTests : IDisposable
             await Task.Delay(1, TestContext.Current.CancellationToken);
         Assert.True(condition());
     }
+    private static void SetPrivateField<T>(object instance, string name, T value) =>
+        instance.GetType().GetField(name,
+            System.Reflection.BindingFlags.Instance |
+            System.Reflection.BindingFlags.NonPublic)!.SetValue(instance, value);
     public void Dispose() { _rsa.Dispose(); _ec.Dispose(); _metrics.Dispose(); }
 
     private sealed class Handler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) : HttpMessageHandler
@@ -1916,7 +2149,7 @@ public sealed class ApiSecurityTests : IDisposable
             Exception? exception, Func<TState, Exception?, string> formatter)
         {
             var properties = state as IEnumerable<KeyValuePair<string, object?>>;
-            var result = properties?.Single(property => property.Key == "Result")
+            var result = properties?.FirstOrDefault(property => property.Key == "Result")
                 .Value?.ToString() ?? "";
             Entries.Add((logLevel, eventId, result, formatter(state, exception), exception));
         }
@@ -1954,6 +2187,7 @@ public sealed class ApiSecurityTests : IDisposable
             _utcNow += value;
             Interlocked.Add(ref _timestamp, (long)(value.TotalSeconds * TimestampFrequency));
         }
+        public void JumpUtc(TimeSpan value) => _utcNow += value;
         public override ITimer CreateTimer(TimerCallback callback, object? state,
             TimeSpan dueTime, TimeSpan period)
         {

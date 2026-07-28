@@ -65,6 +65,7 @@ public sealed class JwksCoordinator : IDisposable
     private readonly SupabaseApiOptions _options;
     private readonly TimeProvider _time;
     private readonly ApiMetrics _metrics;
+    private readonly ILogger<JwksCoordinator>? _logger;
     private Snapshot? _snapshot;
     private Attempt? _inFlight;
     private ulong _attemptSequence;
@@ -76,12 +77,14 @@ public sealed class JwksCoordinator : IDisposable
     private long _unknownNotBefore;
     private bool _disposed;
 
-    public JwksCoordinator(HttpClient http, SupabaseApiOptions options, TimeProvider time, ApiMetrics metrics)
+    public JwksCoordinator(HttpClient http, SupabaseApiOptions options, TimeProvider time,
+        ApiMetrics metrics, ILogger<JwksCoordinator>? logger = null)
     {
         _http = http;
         _options = options;
         _time = time;
         _metrics = metrics;
+        _logger = logger;
         options.Validate();
         if (_http.DefaultRequestHeaders.Authorization is not null)
             throw new InvalidOperationException("Identity headers must not be configured globally.");
@@ -110,8 +113,6 @@ public sealed class JwksCoordinator : IDisposable
             var now = _time.GetTimestamp();
             ExpireSnapshotLocked(now);
             if (IsFreshLocked(now))
-                return;
-            if (_generation == 1 && !_attemptedGeneration)
                 return;
 
             if (_inFlight is not null)
@@ -203,8 +204,10 @@ public sealed class JwksCoordinator : IDisposable
             else
             {
                 InvalidateAttemptLocked("epoch_invalidated");
-                _epoch = CheckedIncrement(_epoch);
-                _generation = CheckedIncrement(_generation);
+                var nextEpoch = CheckedIncrement(_epoch);
+                var nextGeneration = CheckedIncrement(_generation);
+                _epoch = nextEpoch;
+                _generation = nextGeneration;
                 RetireSnapshotLocked();
                 SetReadinessLocked(false);
                 _attemptedGeneration = true;
@@ -229,24 +232,46 @@ public sealed class JwksCoordinator : IDisposable
     private async Task ExecuteAttemptAsync(Attempt attempt)
     {
         await Task.Yield();
-        var transport = FetchTransportAsync(attempt.TransportCancellation.Token);
-        var deadline = Task.Delay(Deadline, _time, CancellationToken.None);
-        var winner = await Task.WhenAny(transport, deadline).ConfigureAwait(false);
-        if (winner == deadline)
+        Task<FetchResult> transport;
+        FetchResult result;
+        try
         {
-            TimeoutAttempt(attempt);
-            attempt.TransportCancellation.Cancel();
-            attempt.TransportCancellation.Dispose();
-            _ = ObserveLateTransportAsync(attempt, transport);
-            return;
+            transport = FetchTransportAsync(attempt.TransportCancellation.Token);
+            var deadline = Task.Delay(Deadline, _time, CancellationToken.None);
+            var winner = await Task.WhenAny(transport, deadline).ConfigureAwait(false);
+            if (winner == deadline)
+            {
+                TimeoutAttempt(attempt);
+                try { attempt.TransportCancellation.Cancel(); }
+                catch (ObjectDisposedException) { }
+                catch (AggregateException) { }
+                finally
+                {
+                    attempt.TransportCancellation.Dispose();
+                    _ = ObserveLateTransportAsync(transport);
+                }
+                return;
+            }
+
+            result = await transport.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { result = FetchResult.Failure("timeout"); }
+        catch (Exception)
+        {
+            try
+            {
+                _logger?.LogCritical(new EventId(2102, "UnexpectedRefreshFailure"),
+                    "JWKS refresh failed unexpectedly.");
+            }
+            catch (Exception)
+            {
+                // A logging provider must never strand refresh joiners.
+            }
+            result = FetchResult.Failure("unexpected_error");
         }
 
-        FetchResult result;
-        try { result = await transport.ConfigureAwait(false); }
-        catch (OperationCanceledException) { result = FetchResult.Failure("timeout"); }
-        catch (HttpRequestException) { result = FetchResult.Failure("http_error"); }
-        CompleteAttempt(attempt, result);
-        attempt.TransportCancellation.Dispose();
+        try { CompleteAttempt(attempt, result); }
+        finally { attempt.TransportCancellation.Dispose(); }
     }
 
     private void TimeoutAttempt(Attempt attempt)
@@ -263,13 +288,15 @@ public sealed class JwksCoordinator : IDisposable
         }
     }
 
-    private async Task ObserveLateTransportAsync(Attempt attempt, Task<FetchResult> transport)
+    private async Task ObserveLateTransportAsync(Task<FetchResult> transport)
     {
-        FetchResult result;
-        try { result = await transport.ConfigureAwait(false); }
-        catch (OperationCanceledException) { return; }
-        result.Snapshot?.Dispose();
-        Decision("stale_completion_discarded");
+        try
+        {
+            var result = await transport.ConfigureAwait(false);
+            result.Snapshot?.Dispose();
+        }
+        catch (Exception) { }
+        finally { Decision("stale_completion_discarded"); }
     }
 
     private async Task<FetchResult> FetchTransportAsync(CancellationToken cancellationToken)

@@ -59,6 +59,57 @@ public sealed class FixedWindowLimiter
 
 public sealed record RateLimitDecision(bool Allowed, int RetryAfterSeconds, bool CapacityExceeded = false);
 
+public sealed class IngressRateLimiter
+{
+    public const int PermitLimitPerMinute = 120;
+    private readonly FixedWindowLimiter _limiter;
+
+    public IngressRateLimiter(TimeProvider time) => _limiter = new(time);
+
+    public RateLimitDecision Acquire(IPAddress? address) =>
+        _limiter.Acquire(
+            "ingress-ip:" + RateLimitPartition.Normalize(address),
+            PermitLimitPerMinute);
+}
+
+public sealed class IngressRateLimitingMiddleware(RequestDelegate next)
+{
+    public async Task InvokeAsync(
+        HttpContext context,
+        IngressRateLimiter limiter,
+        ApiMetrics metrics)
+    {
+        if (!context.Request.Path.StartsWithSegments("/v1"))
+        {
+            await next(context).ConfigureAwait(false);
+            return;
+        }
+
+        var decision = limiter.Acquire(context.Connection.RemoteIpAddress);
+        if (decision.Allowed)
+        {
+            await next(context).ConfigureAwait(false);
+            return;
+        }
+
+        metrics.RateLimitRejections.Add(
+            1,
+            new KeyValuePair<string, object?>[]
+            {
+                new("policy", "jwt_ingress"),
+            });
+        context.Response.Headers.RetryAfter =
+            decision.RetryAfterSeconds.ToString(
+                System.Globalization.CultureInfo.InvariantCulture);
+        await ProblemWriter.WriteAsync(
+                context,
+                StatusCodes.Status429TooManyRequests,
+                "rate_limit",
+                "Request limit exceeded.")
+            .ConfigureAwait(false);
+    }
+}
+
 public sealed class ApiRateLimitingMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(HttpContext context, FixedWindowLimiter limiter, ApiMetrics metrics)
@@ -72,7 +123,8 @@ public sealed class ApiRateLimitingMiddleware(RequestDelegate next)
         var authenticated = Guid.TryParse(subject, out var id);
         var partition = authenticated
             ? "sub:" + id
-            : "ip:" + Normalize(context.Connection.RemoteIpAddress);
+            : "ip:" + RateLimitPartition.Normalize(
+                context.Connection.RemoteIpAddress);
         var decision = limiter.Acquire(partition, authenticated ? 30 : 10);
         if (decision.Allowed)
         {
@@ -85,8 +137,11 @@ public sealed class ApiRateLimitingMiddleware(RequestDelegate next)
         await ProblemWriter.WriteAsync(context, StatusCodes.Status429TooManyRequests, "rate_limit", "Request limit exceeded.")
             .ConfigureAwait(false);
     }
+}
 
-    private static string Normalize(IPAddress? address) =>
+internal static class RateLimitPartition
+{
+    public static string Normalize(IPAddress? address) =>
         address is null ? "unknown" :
         address.IsIPv4MappedToIPv6 ? address.MapToIPv4().ToString() : address.ToString();
 }
@@ -104,6 +159,7 @@ internal static class ProblemWriter
             status,
             code,
             traceId = context.TraceIdentifier
-        }, context.RequestAborted);
+        }, options: null, contentType: "application/problem+json",
+            cancellationToken: context.RequestAborted);
     }
 }

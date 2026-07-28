@@ -1,0 +1,12 @@
+# Supabase
+.branches
+.temp
+
+# The linked-project config is generated per workstation. The normative,
+# reviewed local Phase A configuration lives in backend/supabase/config.toml.
+config.toml
+
+# dotenvx
+.env.keys
+.env.local
+.env.*.local

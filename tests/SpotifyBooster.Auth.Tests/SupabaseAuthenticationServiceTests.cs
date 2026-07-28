@@ -65,6 +65,73 @@ public sealed class SupabaseAuthenticationServiceTests
     }
 
     [Fact]
+    public async Task PersistentSessionClearFailureIsReportedAndDoesNotPreventRemoteRevocation()
+    {
+        var store = new FailingClearStore(Session());
+        HttpRequestMessage? observed = null;
+        var service = Create((request, _) =>
+        {
+            observed = Clone(request);
+            return new(HttpStatusCode.NoContent);
+        }, store);
+
+        var result = await service.SignOutAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(LocalSignOut.Failed, result.LocalSignOut);
+        Assert.Equal(RemoteRevocation.Succeeded, result.RemoteRevocation);
+        Assert.Equal("access-token", observed!.Headers.Authorization!.Parameter);
+        Assert.Null(await service.GetSessionAsync(TestContext.Current.CancellationToken));
+
+        var reconstructed = Create((_, _) => new(HttpStatusCode.NoContent), store);
+        Assert.NotNull(await reconstructed.GetSessionAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task FailedInitialClearIsRetriedAndPersistsAcrossServiceReconstruction()
+    {
+        var store = new FailFirstClearStore(Session());
+        var service = Create((_, _) => new(HttpStatusCode.NoContent), store);
+
+        var result = await service.SignOutAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(LocalSignOut.Completed, result.LocalSignOut);
+        Assert.Equal(RemoteRevocation.Succeeded, result.RemoteRevocation);
+        Assert.Equal(2, store.ClearAttempts);
+        var reconstructed = Create((_, _) => new(HttpStatusCode.NoContent), store);
+        Assert.Null(await reconstructed.GetSessionAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ConcurrentSignOutCallsJoinTheSameOperation()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        var store = new InMemoryAuthSessionStore();
+        await store.WriteAsync(Session(), TestContext.Current.CancellationToken);
+        var service = Create((_, _) =>
+        {
+            Interlocked.Increment(ref calls);
+            entered.SetResult();
+            return release.Task;
+        }, store);
+
+        var first = service.SignOutAsync(TestContext.Current.CancellationToken);
+        await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
+        var second = service.SignOutAsync(TestContext.Current.CancellationToken);
+
+        Assert.False(second.IsCompleted);
+        release.SetResult(new(HttpStatusCode.NoContent));
+        var results = await Task.WhenAll(first, second);
+        Assert.All(results, result =>
+        {
+            Assert.Equal(LocalSignOut.Completed, result.LocalSignOut);
+            Assert.Equal(RemoteRevocation.Succeeded, result.RemoteRevocation);
+        });
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
     public async Task ConcurrentRefreshIsSerializedAndRotatesSession()
     {
         var calls = 0;
@@ -241,7 +308,9 @@ public sealed class SupabaseAuthenticationServiceTests
     {
         var requests = new List<HttpRequestMessage>();
         var store = new InMemoryAuthSessionStore();
-        await store.WriteAsync(Session(), TestContext.Current.CancellationToken);
+        await store.WriteAsync(
+            Session() with { Purpose = AuthSessionPurpose.PasswordRecovery },
+            TestContext.Current.CancellationToken);
         var service = Create((request, _) =>
         {
             requests.Add(Clone(request));
@@ -262,6 +331,9 @@ public sealed class SupabaseAuthenticationServiceTests
         var update = Assert.Single(requests, request =>
             request.RequestUri!.AbsolutePath.EndsWith("/user", StringComparison.Ordinal));
         Assert.Equal("access-token", update.Headers.Authorization!.Parameter);
+        Assert.Equal(
+            AuthSessionPurpose.Standard,
+            (await store.ReadAsync(TestContext.Current.CancellationToken))!.Purpose);
     }
 
     [Fact]
@@ -305,7 +377,8 @@ public sealed class SupabaseAuthenticationServiceTests
         var store = new InMemoryAuthSessionStore();
         await store.WriteAsync(Session() with
         {
-            AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddSeconds(-1)
+            AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddSeconds(-1),
+            Purpose = AuthSessionPurpose.PasswordRecovery,
         }, TestContext.Current.CancellationToken);
         var service = Create((_, _) =>
         {
@@ -314,6 +387,25 @@ public sealed class SupabaseAuthenticationServiceTests
         }, store);
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.UpdatePasswordAsync(new("abcdefghij"), TestContext.Current.CancellationToken));
+        Assert.Equal(0, calls);
+    }
+
+    [Fact]
+    public async Task StandardSessionCannotUpdatePassword()
+    {
+        var calls = 0;
+        var store = new InMemoryAuthSessionStore();
+        await store.WriteAsync(Session(), TestContext.Current.CancellationToken);
+        var service = Create((_, _) =>
+        {
+            calls++;
+            return Json(HttpStatusCode.OK, SessionJson);
+        }, store);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpdatePasswordAsync(
+                new("abcdefghij"),
+                TestContext.Current.CancellationToken));
         Assert.Equal(0, calls);
     }
 
@@ -358,6 +450,41 @@ public sealed class SupabaseAuthenticationServiceTests
         Assert.Throws<InvalidOperationException>(options.Validate);
     }
 
+    [Fact]
+    public void UnboundedTransportOptionsAreRejected()
+    {
+        foreach (TimeSpan timeout in new[]
+                 {
+                     TimeSpan.Zero,
+                     Timeout.InfiniteTimeSpan,
+                     SupabaseAuthOptions.MaximumTimeout + TimeSpan.FromTicks(1),
+                 })
+        {
+            SupabaseAuthOptions options = ValidOptions() with { Timeout = timeout };
+            Assert.Throws<InvalidOperationException>(options.Validate);
+        }
+
+        foreach (int responseBytes in new[]
+                 {
+                     -1,
+                     0,
+                     SupabaseAuthOptions.MaximumAllowedResponseBytes + 1,
+                 })
+        {
+            SupabaseAuthOptions options = ValidOptions() with
+            {
+                MaximumResponseBytes = responseBytes,
+            };
+            Assert.Throws<InvalidOperationException>(options.Validate);
+        }
+
+        (ValidOptions() with
+        {
+            Timeout = SupabaseAuthOptions.MaximumTimeout,
+            MaximumResponseBytes = SupabaseAuthOptions.MaximumAllowedResponseBytes,
+        }).Validate();
+    }
+
     private static SupabaseAuthenticationService Create(
         Func<HttpRequestMessage, CancellationToken, HttpResponseMessage> handler,
         IAuthSessionStore? store = null) => Create((r, c) => Task.FromResult(handler(r, c)), store);
@@ -400,6 +527,48 @@ public sealed class SupabaseAuthenticationServiceTests
         expires_in = 3600,
         user = new { id = UserId, email = "u@example.test", email_confirmed_at = "2026-01-01T00:00:00Z" }
     });
+
+    private sealed class FailingClearStore(AuthSessionContract initial) :
+        IAuthSessionStore
+    {
+        private AuthSessionContract? _session = initial;
+
+        public ValueTask<AuthSessionContract?> ReadAsync(
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult(_session);
+
+        public ValueTask WriteAsync(
+            AuthSessionContract? session,
+            CancellationToken cancellationToken)
+        {
+            if (session is null)
+                throw new IOException("simulated store clear failure");
+            _session = session;
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class FailFirstClearStore(AuthSessionContract initial) :
+        IAuthSessionStore
+    {
+        private AuthSessionContract? _session = initial;
+
+        public int ClearAttempts { get; private set; }
+
+        public ValueTask<AuthSessionContract?> ReadAsync(
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult(_session);
+
+        public ValueTask WriteAsync(
+            AuthSessionContract? session,
+            CancellationToken cancellationToken)
+        {
+            if (session is null && ++ClearAttempts == 1)
+                throw new IOException("simulated transient store clear failure");
+            _session = session;
+            return ValueTask.CompletedTask;
+        }
+    }
 
     private sealed class Handler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) : HttpMessageHandler
     {

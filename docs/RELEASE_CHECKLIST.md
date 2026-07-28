@@ -6,11 +6,12 @@ Cette checklist décrit le gate d’intégration Phase A. Elle n’autorise pas 
 release commerciale. Authenticode, .NET 10, Stripe, updater, production et
 validation utilisateur complète sont différés.
 
-Le gate backend du 28 juillet 2026 a réussi les tests Node `18/18`, le lint,
-Supabase `2.109.1`, reset, lint PostgreSQL, pgTAP `110/110`, atomicité des
+Le gate backend du 29 juillet 2026 a réussi la matrice Node de `24` tests sur
+Windows et WSL, le lint, Supabase `2.109.1`, reset, lint PostgreSQL,
+pgTAP `111/111`, atomicité des
 migrations, E2E Auth/API TLS à deux utilisateurs, panne/récupération readiness
-et scan de secrets. L’API ciblée réussit `94/94`. Le total global .NET réussit
-`346/346`, avec build Release `0` avertissement/`0` erreur, format et diff
+et scan de secrets. L’API ciblée réussit `105/105`. Le total global .NET réussit
+`366/366`, avec build Release `0` avertissement/`0` erreur, format et diff
 propres. L’audit NuGet remonte `0` vulnérabilité ; les transitifs de tests
 dépréciés `5.0.0` via xUnit restent documentés. La stack locale a été arrêtée.
 
@@ -24,7 +25,7 @@ dépréciés `5.0.0` via xUnit restent documentés. La stack locale a été arr�
 - [x] aucune CLI globale substituée ;
 - [x] audits NuGet et npm sans vulnérabilité bloquante ;
 - [x] scan de secrets, clés privées, tokens et callbacks TLS permissifs ;
-- [ ] **Sign-off packaging :** `node_modules` et `.local` absents des
+- [x] **Sign-off packaging :** `node_modules` et `.local` absents des
   artefacts.
 
 ## Build et tests .NET
@@ -39,6 +40,8 @@ dépréciés `5.0.0` via xUnit restent documentés. La stack locale a été arr�
 - [x] build sans erreur ni avertissement important ;
 - [x] tous les projets Contracts/Auth/API et tests intégrés à la solution ;
 - [x] aucun échec de test ;
+- [x] quota d’entrée `/v1` borné avant validation JWT, puis quotas
+  post-authentification par subject/adresse ;
 - [x] total final recopié dans `PROJECT_STATE.md` après exécution, jamais
   additionné depuis des voies indépendantes.
 
@@ -60,7 +63,7 @@ npm run gate:local:auth-api
 - [x] CA locale fournie explicitement par `SSL_CERT_FILE` ou `--cacert` ;
 - [x] reset depuis zéro ;
 - [x] lint sans erreur bloquante ;
-- [x] pgTAP `110/110` ;
+- [x] pgTAP `111/111` ;
 - [x] test statique : le probe crée hors transaction une séquence PostgreSQL ;
   un handler vérifie le SQLSTATE et le message exacts de `P0001`, incrémente
   la séquence, puis relance l’exception ;
@@ -71,11 +74,12 @@ npm run gate:local:auth-api
   SHA-512 vérifié avant extraction et aucun `dotnet-install.sh` ;
 - [x] tests Auth 9/10 caractères ;
 - [x] tests deux utilisateurs et absence d’IDOR ;
-- [x] rotation/rejeu famille refresh selon Auth `2.109.1` et logout ;
+- [x] récupération parent direct, rejeu grand-parent/révocation famille selon
+  Auth `2.109.1`, et logout ;
 - [x] panne/récupération readiness `200 -> 503 -> 200` ;
 - [x] test statique : sorties start/reset non persistées et tous les autres
   logs temporaires scannés sans afficher de contenu sensible ;
-- [ ] **Gate final renforcé :** logs sans JWT, bearer, refresh token, mot de
+- [x] **Gate final renforcé :** logs sans JWT, bearer, refresh token, mot de
   passe/connexion, e-mail jetable, clé Supabase complète ou matériau JWK privé.
 
 Le gate Linux n’installe ni ne modifie aucun certificat dans un magasin

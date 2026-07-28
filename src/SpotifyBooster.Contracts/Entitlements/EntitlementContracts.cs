@@ -26,6 +26,7 @@ public sealed record EntitlementContract(
         IsFeatureEnabled(feature, DateTimeOffset.UtcNow);
 
     public bool IsFeatureEnabled(CommercialFeature feature, DateTimeOffset evaluatedAt) =>
+        Enum.IsDefined(feature) &&
         IsAuthenticated && Plan == CommercialPlan.Pro &&
         IsStatusEligible(evaluatedAt) &&
         Features.Contains(feature);
@@ -36,9 +37,8 @@ public sealed record EntitlementContract(
             SubscriptionStatus.Trialing
                 or SubscriptionStatus.Active
                 or SubscriptionStatus.PastDue =>
-                EntitlementExpiresAt is null
-                || EntitlementExpiresAt > evaluatedAt
-                || IsOfflineGraceActive,
+                EntitlementExpiresAt is not null
+                && EntitlementExpiresAt > evaluatedAt,
             SubscriptionStatus.Canceled =>
                 EntitlementExpiresAt is not null
                 && EntitlementExpiresAt > evaluatedAt,

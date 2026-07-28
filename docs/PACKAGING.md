@@ -7,7 +7,7 @@ La version applicative et les scripts de release utilisent `0.2.0` pour `win-x64
 | Fichier | Rôle |
 |---|---|
 | `scripts\build.ps1` | restore verrouillé puis build Release reproductible |
-| `scripts\test.ps1` | restore optionnel, exécution des trois projets de tests et sortie TRX facultative |
+| `scripts\test.ps1` | restore optionnel, exécution des cinq projets de tests et sortie TRX facultative |
 | `scripts\publish-portable.ps1` | publication self-contained single-file et création du mode portable |
 | `scripts\build-installer.ps1` | compilation de l’installateur NSIS |
 | `scripts\package-release.ps1` | nettoyage contrôlé, build, tests, portable, installateur, hashes et rapport |
@@ -46,7 +46,7 @@ Le script :
 1. vérifie puis nettoie uniquement `artifacts` ;
 2. restaure la solution en mode verrouillé ;
 3. compile la Release avec `ContinuousIntegrationBuild=true` ;
-4. exécute les tests sans rebuild et conserve trois rapports TRX ;
+4. exécute les tests sans rebuild et conserve cinq rapports TRX ;
 5. publie le portable ;
 6. construit l’installateur NSIS ;
 7. génère `artifacts\checksums\SHA256SUMS.txt` en UTF-8 sans BOM ;

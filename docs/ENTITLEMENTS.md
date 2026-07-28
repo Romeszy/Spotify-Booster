@@ -12,8 +12,11 @@
 - ensemble de fonctionnalités.
 
 `IsFeatureEnabled` exige un utilisateur authentifié, le plan Pro, un statut
-autorisé, une durée valide ou une grâce active, et la présence de la
-fonctionnalité.
+autorisé, une échéance effective non nulle et strictement future, et la présence
+de la fonctionnalité. `EntitlementExpiresAt` représente cette échéance
+effective, y compris la fin de grâce lorsqu’une grâce bornée a été calculée par
+une source autoritaire. `IsOfflineGraceActive` est informatif et ne peut jamais,
+à lui seul, prolonger un droit expiré ou dépourvu d’échéance.
 
 Fonctionnalités connues :
 
