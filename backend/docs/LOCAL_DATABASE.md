@@ -15,7 +15,7 @@ From `backend`:
 
 ```powershell
 pwsh -NoProfile -File ./scripts/bootstrap-supabase-local.ps1 -SkipStart
-# Inspect ./.supabase configuration and the certificate, then explicitly:
+# Inspect ./supabase/config.toml and the certificate, then explicitly:
 pwsh -NoProfile -File ./scripts/bootstrap-supabase-local.ps1 -TrustCertificate
 npm run db:reset
 npm run db:lint
@@ -43,7 +43,9 @@ machine-local TLS and Auth signing material. The bootstrap:
   both process streams are discarded, never captured;
 - validates the staged exact ES256/P-256 JWK fields and a private-sign/public-
   verify round trip, atomically replaces the canonical placeholder, then after
-  startup proves that JWKS matches `kid/x/y` and contains no private `d`;
+  startup proves that JWKS matches `kid/x/y`, contains no private `d`, and
+  verifies through stdin an Auth-issued ES256 JWT before deleting its generated
+  local user fixture;
 - validates but never overwrites an existing signing key;
 - applies `0700` directories and `0600` private files on POSIX. On Windows the
   bootstrap disables file ACL inheritance and grants the current SID and

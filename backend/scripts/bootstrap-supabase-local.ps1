@@ -24,6 +24,16 @@ function Invoke-Checked([string]$File, [string[]]$Arguments) {
     & $File @Arguments
     if ($LASTEXITCODE -ne 0) { throw "command_failed:$File" }
 }
+function Stop-ProcessTree([System.Diagnostics.Process]$Process) {
+    if ($RunningOnWindows) {
+        $killer = Start-Process -FilePath 'taskkill.exe' -ArgumentList @('/PID', $Process.Id, '/T', '/F') -PassThru -NoNewWindow -Wait
+        if ($killer.ExitCode -ne 0 -and -not $Process.HasExited) { throw 'process_tree_kill_failed' }
+    } else {
+        & pkill -TERM -P $Process.Id 2>$null
+        try { if (-not $Process.HasExited) { $Process.Kill() } } catch { }
+    }
+    if (-not $Process.WaitForExit(5000)) { throw 'process_tree_kill_timeout' }
+}
 function Invoke-BoundedSilent([string]$File, [string[]]$Arguments, [int]$TimeoutSeconds) {
     $quoted = @($Arguments | ForEach-Object { if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ } })
     $process = New-Object System.Diagnostics.Process
@@ -36,11 +46,31 @@ function Invoke-BoundedSilent([string]$File, [string[]]$Arguments, [int]$Timeout
     $process.BeginOutputReadLine()
     $process.BeginErrorReadLine()
     if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-        try { $process.Kill() } catch { }
+        Stop-ProcessTree $process
         throw 'command_timeout'
     }
     $process.WaitForExit()
     if ($process.ExitCode -ne 0) { throw 'command_failed' }
+}
+function Invoke-JwtValidation([string]$Node, [string]$ValidatorPath, [string]$JwksPath, [string]$Root, [string]$Token) {
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo.FileName = $Node
+    $process.StartInfo.Arguments = ('"' + $ValidatorPath + '" validate-jwt-stdin "' + $JwksPath + '" "' + $Root + '"')
+    $process.StartInfo.UseShellExecute = $false
+    $process.StartInfo.RedirectStandardInput = $true
+    $process.StartInfo.RedirectStandardOutput = $true
+    $process.StartInfo.RedirectStandardError = $true
+    if (-not $process.Start()) { throw 'jwt_validation_start_failed' }
+    $process.BeginOutputReadLine()
+    $process.BeginErrorReadLine()
+    $process.StandardInput.Write($Token)
+    $process.StandardInput.Close()
+    if (-not $process.WaitForExit(10000)) {
+        Stop-ProcessTree $process
+        throw 'jwt_validation_timeout'
+    }
+    $process.WaitForExit()
+    if ($process.ExitCode -ne 0) { throw 'jwt_validation_failed' }
 }
 function Assert-PrivateWindowsAcl([string]$Path) {
     $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
@@ -165,17 +195,37 @@ try {
         $npmCommand = (Get-Command $(if ($RunningOnWindows) { 'npm.cmd' } else { 'npm' })).Source
         Invoke-BoundedSilent $npmCommand @('--prefix', $BackendRoot, 'exec', '--offline', '--', 'supabase', 'start', '--workdir', $BackendRoot) $StartTimeoutSeconds
         $jwksPath = Join-Path $AuthRoot ('.jwks-' + [guid]::NewGuid().ToString('N') + '.json')
+        $fixtureSubject = $null
         try {
             $jwks = Invoke-RestMethod -Method Get -Uri 'https://127.0.0.1:54321/auth/v1/.well-known/jwks.json' -TimeoutSec 5
             [System.IO.File]::WriteAllText($jwksPath, ($jwks | ConvertTo-Json -Depth 8 -Compress), (New-Object System.Text.UTF8Encoding($false)))
             Invoke-Checked 'node' @($Validator, 'validate-jwks', $SigningPath, $jwksPath, $LocalRoot)
+            $email = ('jwt-proof-' + [guid]::NewGuid().ToString('N') + '@example.invalid')
+            $password = ('A1!' + [guid]::NewGuid().ToString('N').Substring(0, 16))
+            $session = Invoke-RestMethod -Method Post -Uri 'https://127.0.0.1:54321/auth/v1/signup' `
+                -Headers @{ apikey = 'sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH' } `
+                -ContentType 'application/json' -TimeoutSec 5 `
+                -Body (@{ email = $email; password = $password } | ConvertTo-Json -Compress)
+            if (-not $session.access_token -or -not $session.user.id) { throw 'jwt_fixture_session_missing' }
+            $fixtureSubject = [guid]::Parse($session.user.id).ToString()
+            Invoke-JwtValidation (Get-Command node).Source $Validator $jwksPath $LocalRoot $session.access_token
+            $session = $null
+            $password = $null
+            $email = $null
         } finally {
+            if ($fixtureSubject) {
+                Invoke-BoundedSilent 'docker' @(
+                    'exec', 'supabase_db_spotify-booster-commercial-phase-a',
+                    'psql', '-U', 'postgres', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1',
+                    '-c', ("delete from auth.users where id = '" + $fixtureSubject + "'::uuid")
+                ) 10
+            }
             if (Test-Path -LiteralPath $jwksPath) { Remove-Item -LiteralPath $jwksPath -Force }
         }
     }
     Write-Host 'Supabase local bootstrap completed with strict TLS and ES256/JWKS validation.'
 } catch {
-    Write-Error ('bootstrap_failed:' + $_.Exception.Message)
+    Write-Error 'bootstrap_failed'
     exit 1
 } finally {
     Pop-Location

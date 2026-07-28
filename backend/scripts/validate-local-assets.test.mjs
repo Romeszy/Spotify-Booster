@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { generateKeyPairSync } from 'node:crypto';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { createPrivateKey, generateKeyPairSync, sign } from 'node:crypto';
+import { mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -16,6 +16,7 @@ function fixture() {
   return { dir, jwk };
 }
 function run(...args) { return spawnSync(process.execPath, [validator, ...args], { encoding: 'utf8' }); }
+function runWithInput(input, ...args) { return spawnSync(process.execPath, [validator, ...args], { encoding: 'utf8', input }); }
 
 test('CLI staging array normalizes to the exact private JWK array', () => {
   const { dir, jwk } = fixture(); const input=join(dir,'staged.json'), output=join(dir,'signing_keys.json');
@@ -58,6 +59,10 @@ test('bootstrap generates only through configured private staging without stdout
   assert.match(source,/Invoke-BoundedSilent/);
   assert.match(source,/validate-jwk[^\r\n]*\$stageSigningPath/);
   assert.doesNotMatch(source,/Invoke-Bounded\s+\$LocalCli/);
+  assert.match(source,/Stop-ProcessTree \$process/);
+  assert.match(source,/validate-jwt-stdin/);
+  assert.match(source,/delete from auth\.users/);
+  assert.doesNotMatch(source,/\$_\.Exception\.Message/);
 });
 
 test('invalid scalar encoding and unexpected fields are rejected without secret output', () => {
@@ -65,4 +70,36 @@ test('invalid scalar encoding and unexpected fields are rejected without secret 
   jwk.d='AA=='; jwk.secret='must-not-appear'; writeFileSync(input,JSON.stringify([jwk]));
   const result=run('validate-jwk',input,dir);
   assert.notEqual(result.status,0); assert.doesNotMatch(result.stderr,/must-not-appear/);
+});
+
+test('native parse details and injected secret markers never enter error output', () => {
+  const { dir } = fixture(); const input=join(dir,'malformed.json');
+  writeFileSync(input,'{"d":"SENSITIVE_PARSE_MARKER",');
+  const result=run('validate-jwk',input,dir);
+  assert.notEqual(result.status,0);
+  assert.equal(result.stderr,'local_asset_validation_failed:unexpected_input\n');
+  assert.doesNotMatch(result.stderr,/SENSITIVE_PARSE_MARKER|JSON|position/i);
+});
+
+test('canonical confinement refuses symlinked staging paths', () => {
+  const { dir, jwk } = fixture(); const outside=mkdtempSync(join(tmpdir(),'spotify-booster-outside-'));
+  const target=join(outside,'key.json'); writeFileSync(target,JSON.stringify([jwk]));
+  const link=join(dir,'linked'); symlinkSync(outside,link,'junction');
+  const result=run('validate-jwk',join(link,'key.json'),dir);
+  assert.notEqual(result.status,0);
+  assert.match(result.stderr,/symlink_or_reparse_refused/);
+});
+
+test('an issued-shape ES256 JWT is verified from stdin without token output', () => {
+  const { dir, jwk } = fixture(); const jwks=join(dir,'jwks.json');
+  const publicJwk={ kty:jwk.kty, use:'sig', key_ops:['verify'], alg:jwk.alg, kid:jwk.kid, crv:jwk.crv, x:jwk.x, y:jwk.y };
+  writeFileSync(jwks,JSON.stringify({keys:[publicJwk]}));
+  const header=Buffer.from(JSON.stringify({alg:'ES256',kid:jwk.kid,typ:'JWT'})).toString('base64url');
+  const payload=Buffer.from(JSON.stringify({sub:'00000000-0000-0000-0000-000000000001',exp:4102444800})).toString('base64url');
+  const signingInput=`${header}.${payload}`;
+  const signature=sign('sha256',Buffer.from(signingInput),{key:createPrivateKey({key:jwk,format:'jwk'}),dsaEncoding:'ieee-p1363'}).toString('base64url');
+  const token=`${signingInput}.${signature}`;
+  const result=runWithInput(token,'validate-jwt-stdin',jwks,dir);
+  assert.equal(result.status,0);
+  assert.doesNotMatch(result.stdout+result.stderr,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
 });

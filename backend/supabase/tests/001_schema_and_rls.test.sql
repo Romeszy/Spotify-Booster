@@ -1,6 +1,6 @@
 begin;
 
-select plan(58);
+select plan(85);
 
 select has_table('public', 'profiles', 'profiles exists');
 select has_table('public', 'entitlements', 'entitlements exists');
@@ -21,6 +21,8 @@ select policies_are('public', 'entitlements', array['entitlements_select_own','e
 
 select ok(not has_table_privilege('anon', 'public.profiles', 'SELECT'), 'anon cannot select profiles');
 select ok(not has_table_privilege('anon', 'public.entitlements', 'SELECT'), 'anon cannot select entitlements');
+select ok((select not exists (select 1 from aclexplode(coalesce(relacl, acldefault('r', relowner))) where grantee=0) from pg_class where oid='public.profiles'::regclass), 'PUBLIC has no profile table privileges');
+select ok((select not exists (select 1 from aclexplode(coalesce(relacl, acldefault('r', relowner))) where grantee=0) from pg_class where oid='public.entitlements'::regclass), 'PUBLIC has no entitlement table privileges');
 select ok(not has_table_privilege('anon', 'public.profiles', 'INSERT'), 'anon cannot insert profiles');
 select ok(not has_table_privilege('anon', 'public.entitlements', 'UPDATE'), 'anon cannot update entitlements');
 select ok(has_schema_privilege('anon', 'public', 'USAGE'), 'anon has PostgREST schema usage');
@@ -78,6 +80,36 @@ set local search_path = public, extensions, pg_catalog;
 update public.entitlements set plan='pro', valid_until=issued_at+interval '30 days', revision=revision+1 where user_id='00000000-0000-0000-0000-00000000000a';
 reset role;
 select is((select revision from public.entitlements where user_id='00000000-0000-0000-0000-00000000000a'), 2::bigint, 'writer increments exactly once');
+select ok((select updated_at > created_at from public.entitlements where user_id='00000000-0000-0000-0000-00000000000a'), 'entitlement timestamp assigned server-side');
+
+select ok(not has_table_privilege('authenticated', 'public.profiles', 'INSERT'), 'authenticated cannot insert profiles');
+select ok(not has_table_privilege('authenticated', 'public.profiles', 'DELETE'), 'authenticated cannot delete profiles');
+select ok(has_column_privilege('authenticated', 'public.entitlements', 'plan', 'SELECT'), 'authenticated selects public entitlement plan');
+select ok(not has_function_privilege('anon', 'spotify_booster_private.touch_profile()', 'EXECUTE'), 'anon cannot execute profile trigger helper');
+select ok(not has_function_privilege('authenticated', 'spotify_booster_private.touch_profile()', 'EXECUTE'), 'authenticated cannot execute profile trigger helper');
+select ok(not has_function_privilege('anon', 'spotify_booster_private.touch_entitlement()', 'EXECUTE'), 'anon cannot execute entitlement trigger helper');
+select ok(not has_function_privilege('authenticated', 'spotify_booster_private.handle_auth_user_created()', 'EXECUTE'), 'authenticated cannot execute signup helper');
+select ok((select not exists (select 1 from aclexplode(coalesce(proacl, acldefault('f', proowner))) where grantee=0 and privilege_type='EXECUTE') from pg_proc where oid='spotify_booster_private.handle_auth_user_created()'::regprocedure), 'PUBLIC cannot execute signup helper');
+select is((select proconfig from pg_proc where oid='spotify_booster_private.touch_profile()'::regprocedure), array['search_path=pg_catalog']::text[], 'profile helper search_path fixed');
+select is((select proconfig from pg_proc where oid='spotify_booster_private.touch_entitlement()'::regprocedure), array['search_path=pg_catalog']::text[], 'entitlement helper search_path fixed');
+select is((select proconfig from pg_proc where oid='spotify_booster_private.handle_auth_user_created()'::regprocedure), array['search_path=pg_catalog']::text[], 'signup helper search_path fixed');
+select has_trigger('public', 'profiles', 'profiles_touch_before_update', 'profile update trigger installed');
+select has_trigger('public', 'entitlements', 'entitlements_touch_before_update', 'entitlement update trigger installed');
+select has_trigger('auth', 'users', 'spotify_booster_auth_user_created', 'signup trigger installed');
+
+select throws_ok($$update public.profiles set user_id='00000000-0000-0000-0000-00000000000b' where user_id='00000000-0000-0000-0000-00000000000a'$$, '22000', 'immutable_profile_owner', 'profile owner immutable');
+select throws_ok($$update public.profiles set created_at=created_at-interval '1 day' where user_id='00000000-0000-0000-0000-00000000000a'$$, '22000', 'immutable_profile_created_at', 'profile created_at immutable');
+select throws_ok($$update public.entitlements set issued_at=issued_at-interval '1 day', revision=revision+1 where user_id='00000000-0000-0000-0000-00000000000a'$$, '22000', 'immutable_entitlement_issued_at', 'entitlement issued_at immutable');
+select throws_ok($$update public.entitlements set features=array['AdvancedGain','ExpertMode','AdvancedBassBoost','Equalizer','CustomProfiles','GlobalHotkeys','TrayAdvancedControls','AutoStart','AdvancedDiagnostics','FuturePremiumFeatures','Unknown'], revision=revision+1 where user_id='00000000-0000-0000-0000-00000000000a'$$, '23514', null, 'more than ten features rejected');
+select throws_ok($$update public.entitlements set valid_until=issued_at-interval '1 second', revision=revision+1 where user_id='00000000-0000-0000-0000-00000000000a'$$, '23514', null, 'valid_until before issued_at rejected');
+select throws_ok($$update public.entitlements set grace_until=valid_until-interval '1 second', revision=revision+1 where user_id='00000000-0000-0000-0000-00000000000a'$$, '23514', null, 'grace before valid_until rejected');
+
+delete from auth.users where id='00000000-0000-0000-0000-00000000000b';
+select is((select count(*)::integer from public.profiles where user_id='00000000-0000-0000-0000-00000000000b'), 0, 'auth deletion cascades profile');
+select is((select count(*)::integer from public.entitlements where user_id='00000000-0000-0000-0000-00000000000b'), 0, 'auth deletion cascades entitlement');
+insert into auth.users (id, email, raw_user_meta_data) values ('00000000-0000-0000-0000-00000000000b', 'b-again@example.invalid', '{"plan":"pro"}'::jsonb);
+select is((select count(*)::integer from public.profiles where user_id='00000000-0000-0000-0000-00000000000b'), 1, 're-registration recreates one profile');
+select is((select plan from public.entitlements where user_id='00000000-0000-0000-0000-00000000000b'), 'free', 're-registration recreates Free entitlement');
 
 select * from finish();
 rollback;
