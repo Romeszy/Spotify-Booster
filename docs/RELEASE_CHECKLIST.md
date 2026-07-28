@@ -6,6 +6,12 @@ Cette checklist décrit le gate d’intégration Phase A. Elle n’autorise pas 
 release commerciale. Authenticode, .NET 10, Stripe, updater, production et
 validation utilisateur complète sont différés.
 
+Le gate du 28 juillet 2026 a réussi la restauration verrouillée, le build
+Release des 13 projets (`0` avertissement, `0` erreur), les tests .NET
+`326/326`, les tests Node `12/12`, le lint Node, les audits de vulnérabilités
+NuGet/npm à `0`, ainsi que Supabase `2.109.1`, reset, lint, pgTAP `110/110`,
+E2E RPC TLS A/B et JWKS avec CA explicite. La stack locale a été arrêtée.
+
 ## Source et dépendances
 
 - [ ] worktree propre et commit identifié ;
@@ -35,18 +41,27 @@ validation utilisateur complète sont différés.
 ## Supabase local
 
 Prérequis : Docker Desktop démarré, Windows PowerShell 5.1+ ou PowerShell 7,
-Node `>=20`, OpenSSL et confiance explicite du certificat du compte courant.
+WSL Ubuntu, Node `>=20` et OpenSSL.
 
-Depuis `backend` :
+Après génération des actifs par le bootstrap PowerShell `-SkipStart`, exécuter
+depuis `backend` sous WSL :
 
-```powershell
+```bash
+export SSL_CERT_FILE="$PWD/supabase/.local/tls/supabase-local.crt"
+npm exec --offline -- supabase start --workdir .
 npm run db:reset
 npm run db:lint
 npm run test:db
+npm run test:e2e:me
+curl --fail --silent --show-error \
+  --cacert "$SSL_CERT_FILE" \
+  https://127.0.0.1:54321/auth/v1/.well-known/jwks.json
+npm exec --offline -- supabase stop --workdir .
 ```
 
 - [ ] origine exacte `https://127.0.0.1:54321` ;
 - [ ] aucune preuve obtenue par HTTP ou acceptation TLS permissive ;
+- [ ] CA locale fournie explicitement par `SSL_CERT_FILE` ou `--cacert` ;
 - [ ] reset depuis zéro ;
 - [ ] lint sans erreur bloquante ;
 - [ ] pgTAP complet ;
@@ -56,6 +71,11 @@ npm run test:db
 - [ ] rotation refresh et logout ;
 - [ ] panne/récupération readiness ;
 - [ ] logs/TRX sans secret.
+
+Le dialogue Windows d’ajout à `CurrentUser\Root` est un blocage connu dans
+l’environnement du gate. Il n’a pas été contourné et aucun certificat n’a été
+ajouté au magasin Windows. Ce blocage n’autorise ni HTTP, ni `-k`, ni callback
+TLS permissif.
 
 ## Desktop et DSP
 

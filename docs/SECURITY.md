@@ -41,8 +41,15 @@ restreints au compte courant et `SYSTEM` sous Windows, et ne doivent jamais
 ## TLS local
 
 L’origine normative est `https://127.0.0.1:54321`. Le certificat doit couvrir
-l’IP `127.0.0.1`. La confiance est ajoutée uniquement au magasin du compte
-développeur après l’action explicite `-TrustCertificate`.
+l’IP `127.0.0.1`. Le script ne tente l’ajout au magasin
+`CurrentUser\Root` qu’après l’action explicite `-TrustCertificate`.
+
+Dans l’environnement du gate, le dialogue de confirmation Windows est resté
+bloqué. Aucun certificat n’a été ajouté au magasin Windows. La validation a
+donc été exécutée sous WSL avec
+`SSL_CERT_FILE="$PWD/supabase/.local/tls/supabase-local.crt"` et, pour le JWKS,
+`curl --cacert "$SSL_CERT_FILE"`. Cette voie conserve la validation complète de
+la chaîne et du nom.
 
 Il n’existe aucun fallback conforme vers HTTP, certificat accept-all,
 `DangerousAcceptAnyServerCertificateValidator` ou désactivation du contrôle de
@@ -84,10 +91,19 @@ Avant livraison :
 ```powershell
 & ".\.dotnet\dotnet.exe" restore .\SpotifyBooster.sln --locked-mode
 & ".\.dotnet\dotnet.exe" list .\SpotifyBooster.sln package --vulnerable --include-transitive
+& ".\.dotnet\dotnet.exe" list .\SpotifyBooster.sln package --deprecated --include-transitive
 Push-Location .\backend
 npm audit --package-lock-only --audit-level=high
 Pop-Location
 ```
+
+Le gate actuel ne détecte aucune vulnérabilité NuGet ou npm. L’audit NuGet
+`--deprecated` signale néanmoins des dépendances transitives `5.0.0` héritées
+de `xunit.v3` `3.2.2` dans les projets de tests :
+`Microsoft.NETCore.Platforms`, `System.Security.AccessControl` et, pour les
+tests DSP/Auth/API, `System.Diagnostics.DiagnosticSource`. Il s’agit d’un
+avertissement amont à surveiller, pas d’une correction locale prouvée ; ne pas
+forcer une substitution transitive sans validation de la chaîne xUnit.
 
 Ne jamais utiliser `npm audit fix` ou une mise à jour aveugle dans le gate.
 Versions et licences sont inventoriées dans

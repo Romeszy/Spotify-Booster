@@ -6,7 +6,7 @@ Le backend utilise :
 
 - Node.js `>=20` ;
 - Supabase CLI exacte `2.109.1`, devDependency verrouillée par npm ;
-- Docker Desktop ;
+- Docker Desktop et WSL Ubuntu pour la voie de gate vérifiée ;
 - PostgreSQL 17 dans la stack locale ;
 - origine API TLS `https://127.0.0.1:54321`.
 
@@ -89,17 +89,31 @@ credential.
 
 ## Validation et rollback
 
-Depuis `backend` :
+Le gate a généré les actifs avec le bootstrap PowerShell en mode `-SkipStart`,
+puis a exécuté sous WSL :
 
-```powershell
+```bash
+# Dans le répertoire backend monté par WSL
+npm ci
+export SSL_CERT_FILE="$PWD/supabase/.local/tls/supabase-local.crt"
+npm run supabase:version
+npm exec --offline -- supabase start --workdir .
 npm run db:reset
 npm run db:lint
 npm run test:db
 npm run test:e2e:me
+npm exec --offline -- supabase stop --workdir .
 ```
 
-La voie base a exécuté reset, lint et pgTAP avec succès. Le gate intégré doit
-rafraîchir cette preuve.
+La CLI a annoncé exactement `2.109.1`. Le démarrage, le reset, le lint,
+`110/110` assertions pgTAP et l’E2E TLS du RPC `/v1/me` avec deux utilisateurs
+ont réussi. La stack a ensuite été arrêtée.
+
+`SSL_CERT_FILE` désigne la CA locale explicite : cette voie valide la chaîne et
+le nom TLS, sans HTTP ni acceptation permissive. Le dialogue Windows d’ajout du
+certificat à `CurrentUser\Root` est resté bloqué dans l’environnement du gate ;
+aucun certificat n’a été ajouté au magasin Windows. Le JWKS a été vérifié
+séparément avec `curl --cacert`.
 
 En échec :
 

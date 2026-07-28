@@ -21,10 +21,20 @@ n’est livré.
 | Tooling Node | bootstrap/assets locaux, ACL après remplacement | Node `12` tests, lint réussi, audit `0` |
 | PostgreSQL/RLS | schéma, grants, policies, triggers, RPC health/me | pgTAP `110/110`, E2E RPC TLS A/B réussi |
 
-Le build Release des 13 projets réussit sans avertissement et le test complet
-de la solution réussit `326/326` lors du gate d’intégration actuel. Pour la
-voie API/backend actuelle, reset depuis zéro, lint PostgreSQL, pgTAP `110/110`
-et E2E TLS réel à deux utilisateurs ont été rejoués avec succès.
+La restauration verrouillée et le build Release des 13 projets réussissent
+avec `0` avertissement et `0` erreur. Le test complet de la solution réussit
+`326/326` lors du gate d’intégration actuel. Pour la voie API/backend actuelle,
+la CLI Supabase exacte `2.109.1`, le démarrage, le reset depuis zéro, le lint
+PostgreSQL, pgTAP `110/110`, l’E2E TLS réel à deux utilisateurs et la lecture
+JWKS avec `curl --cacert` ont réussi sous WSL avec CA explicite. La stack a
+ensuite été arrêtée.
+
+Les audits NuGet et npm ne détectent aucune vulnérabilité. L’audit NuGet des
+packages dépréciés remonte toutefois des transitifs `5.0.0` hérités de
+`xunit.v3` `3.2.2` dans les projets de tests
+(`Microsoft.NETCore.Platforms`, `System.Security.AccessControl` et, selon le
+projet, `System.Diagnostics.DiagnosticSource`). Cet avertissement amont reste
+à surveiller ; aucune substitution transitive non validée n’est revendiquée.
 
 ## Implémenté Phase A
 
@@ -87,6 +97,9 @@ et E2E TLS réel à deux utilisateurs ont été rejoués avec succès.
 - la disponibilité JWKS/Data API conditionne l’API ;
 - le certificat et les clés locales deviennent sensibles s’ils quittent
   `.local` ;
+- le dialogue Windows d’ajout à `CurrentUser\Root` est resté bloqué pendant le
+  gate ; aucun certificat n’a été ajouté, la preuve TLS stricte a utilisé la CA
+  explicite sous WSL ;
 - .NET 8 sort du support le 10 novembre 2026.
 
 ## Prochaine étape

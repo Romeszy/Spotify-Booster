@@ -35,17 +35,24 @@ La Phase A ne fournit pas Stripe, abonnement Pro réel, écrans de compte WPF,
 stockage DPAPI, licence hors ligne, updater, mise à jour obligatoire,
 Authenticode, environnement de production ou release commerciale.
 
-Le build d’intégration Release des 13 projets réussit sans avertissement. Le
-test complet de la solution réussit `312/312` :
+La restauration verrouillée et le build Release des 13 projets réussissent
+avec `0` avertissement et `0` erreur. Le test complet de la solution réussit
+`326/326` :
 
-- desktop : Audio `27`, DSP `88` et Core/Infrastructure `86` tests ;
-- fondation réseau : API `72` et Auth `39` tests ;
-- tooling backend : Node `11` tests, lint syntaxique réussi et audit npm à
+- desktop : Audio `27`, DSP `90` et Core `88` tests ;
+- fondation réseau : API `76` et Auth `45` tests ;
+- tooling backend : Node `12` tests, lint réussi et audit npm à
   `0` vulnérabilité.
 
-La suite pgTAP déclare `94` assertions. Son exécution, le reset et le lint de
-la base restent à rejouer après confiance explicite du certificat TLS local ;
-ils ne font donc pas partie du résultat d’intégration ci-dessus.
+La voie Supabase locale a également réussi le démarrage, le reset, le lint,
+`110/110` assertions pgTAP et l’E2E TLS du RPC `/v1/me` avec deux utilisateurs.
+Le JWKS a été lu avec `curl --cacert`. Ces preuves ont été obtenues sous WSL
+avec la CA locale fournie explicitement, puis la stack a été arrêtée.
+
+L’audit NuGet ne trouve aucune vulnérabilité. L’audit des packages dépréciés
+signale cependant des transitifs `5.0.0` hérités de `xunit.v3` `3.2.2` dans
+les projets de tests ; cet avertissement amont est détaillé dans
+[Sécurité](docs/SECURITY.md).
 
 ## Fonctionnalités desktop
 
@@ -96,26 +103,46 @@ virtuel avant d’activer le moteur.
 ## Backend local Phase A
 
 Le backend local exige Node.js `>=20`, Windows PowerShell 5.1+ ou PowerShell 7,
-OpenSSL et Docker Desktop avec le moteur démarré. La CLI Supabase est la
-dépendance de développement exacte `2.109.1`, installée par `npm ci`; aucune
-CLI globale n’est utilisée.
+WSL Ubuntu, OpenSSL et Docker Desktop avec le moteur démarré. La CLI Supabase
+est la dépendance de développement exacte `2.109.1`, installée par `npm ci`;
+aucune CLI globale n’est utilisée.
 
-Depuis `backend` :
+Générez d’abord les actifs locaux depuis `backend` dans PowerShell, sans
+modifier le magasin de certificats :
 
 ```powershell
 powershell.exe -NoProfile -File .\scripts\bootstrap-supabase-local.ps1 -SkipStart
-powershell.exe -NoProfile -File .\scripts\bootstrap-supabase-local.ps1 -TrustCertificate
+```
+
+Le gate vérifié utilise ensuite WSL et désigne explicitement la CA pour chaque
+client TLS :
+
+```bash
+# Dans le répertoire backend monté par WSL
+npm ci
+export SSL_CERT_FILE="$PWD/supabase/.local/tls/supabase-local.crt"
+npm run supabase:version
+npm test
+npm run lint
+npm audit --package-lock-only --audit-level=high
+npm exec --offline -- supabase start --workdir .
 npm run db:reset
 npm run db:lint
 npm run test:db
+npm run test:e2e:me
+curl --fail --silent --show-error \
+  --cacert "$SSL_CERT_FILE" \
+  https://127.0.0.1:54321/auth/v1/.well-known/jwks.json
+npm exec --offline -- supabase stop --workdir .
 ```
 
-Sous PowerShell 7, `pwsh` peut remplacer `powershell.exe`.
-
-La confiance du certificat TLS local est une action manuelle explicite dans le
-compte Windows courant. L’origine conforme est
-`https://127.0.0.1:54321`. Les certificats et clés sont créés sous
-`backend\supabase\.local\`, qui doit rester ignoré et ne jamais être commité.
+L’origine conforme est `https://127.0.0.1:54321`. Dans l’environnement du gate,
+le dialogue Windows d’ajout à `CurrentUser\Root` n’a pas pu être validé ; le
+certificat n’a donc pas été ajouté au magasin Windows. La voie WSL ci-dessus
+conserve une validation TLS stricte : elle fournit la CA avec `SSL_CERT_FILE`
+ou `--cacert` et ne désactive jamais la vérification. Les certificats et clés
+sont créés sous `backend\supabase\.local\`, qui doit rester ignoré et ne jamais
+être commité.
 
 Consultez
 [la procédure locale détaillée](backend/docs/LOCAL_DATABASE.md) avant usage.

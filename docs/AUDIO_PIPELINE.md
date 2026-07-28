@@ -101,6 +101,6 @@ Le callback audio ne fait aucune opération fichier, réseau ou WPF. Les réglag
 sont préparés hors callback, puis publiés atomiquement. Le traitement du buffer
 réutilisé n’alloue pas.
 
-Les voies les plus récentes ont validé Audio `27` tests et DSP `88` tests.
+Les voies les plus récentes ont validé Audio `27` tests et DSP `90` tests.
 Ces compteurs ne sont pas un total de release. Le transit Spotify réel de bout
 en bout reste une validation manuelle séparée.
