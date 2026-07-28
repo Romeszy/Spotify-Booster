@@ -208,28 +208,22 @@ public sealed class ApiSecurityTests : IDisposable
     }
 
     [Fact]
-    public async Task IsReadyExpirationPublishesMandatoryExpiryLeader()
+    public async Task IsReadyExpirationIsPassiveAndFindStartsMandatoryExpiryLeader()
     {
         var calls = 0;
-        var expiryStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var expiryResponse = new TaskCompletionSource<HttpResponseMessage>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
         using var coordinator = Coordinator((_, _) =>
         {
             if (Interlocked.Increment(ref calls) == 1)
                 return Task.FromResult(Json(HttpStatusCode.OK, RsaJwks("old")));
-            expiryStarted.SetResult();
-            return expiryResponse.Task;
+            return Task.FromResult(Json(HttpStatusCode.OK, RsaJwks("new")));
         });
         using var old = await coordinator.FindAsync("old", TestContext.Current.CancellationToken);
         _time.Advance(TimeSpan.FromMinutes(10));
         Assert.False(coordinator.IsReady);
-        await expiryStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(2, calls);
-        var joiner = coordinator.FindAsync("new", TestContext.Current.CancellationToken);
-        expiryResponse.SetResult(Json(HttpStatusCode.OK, RsaJwks("new")));
-        using var current = await joiner;
+        Assert.Equal(1, calls);
+        using var current = await coordinator.FindAsync("new", TestContext.Current.CancellationToken);
         Assert.NotNull(current);
+        Assert.Equal(2, calls);
         Assert.True(coordinator.IsReady);
     }
 
@@ -682,6 +676,44 @@ public sealed class ApiSecurityTests : IDisposable
     }
 
     [Fact]
+    public async Task SuccessfulReadinessProbeDisposesDeadlineTimerImmediately()
+    {
+        using var client = new HttpClient(new Handler((_, _) =>
+            Task.FromResult(Json(HttpStatusCode.OK,
+                """{"service":"spotify-booster-data","status":"ok","version":1}"""))));
+        var state = new ReadinessState(_time, _metrics);
+        var probe = new DataApiReadinessProbe(client, Options(), state, _time);
+
+        Assert.True(await probe.ProbeAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, _time.TimerCount);
+    }
+
+    [Fact]
+    public async Task HostedReadinessShutdownDoesNotWaitForNonCooperativeTransport()
+    {
+        var calls = 0;
+        var response = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var client = new HttpClient(new Handler((_, _) =>
+        {
+            Interlocked.Increment(ref calls);
+            return response.Task;
+        }));
+        var state = new ReadinessState(_time, _metrics);
+        var probe = new DataApiReadinessProbe(client, Options(), state, _time);
+        using var hosted = new DataApiReadinessHostedService(probe, _time);
+        await hosted.StartAsync(TestContext.Current.CancellationToken);
+        await WaitUntilAsync(() => Volatile.Read(ref calls) == 1);
+
+        await hosted.StopAsync(TestContext.Current.CancellationToken)
+            .WaitAsync(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);
+
+        response.SetResult(Json(HttpStatusCode.ServiceUnavailable, "{}"));
+        await Task.Yield();
+        Assert.False(state.IsDataApiReady);
+    }
+
+    [Fact]
     public async Task ReadinessTimeoutAtTwoSecondsFailsClosed()
     {
         using var client = new HttpClient(new Handler(async (_, cancellationToken) =>
@@ -696,6 +728,66 @@ public sealed class ApiSecurityTests : IDisposable
         Assert.False(await result.WaitAsync(TimeSpan.FromSeconds(1),
             TestContext.Current.CancellationToken));
         Assert.False(state.IsDataApiReady);
+    }
+
+    [Fact]
+    public async Task HostedReadinessHardDeadlineRecoversAndDiscardsLateTransport()
+    {
+        var calls = 0;
+        var firstResponse = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var client = new HttpClient(new Handler((_, _) =>
+        {
+            if (Interlocked.Increment(ref calls) == 1)
+                return firstResponse.Task;
+            return Task.FromResult(Json(HttpStatusCode.OK,
+                """{"service":"spotify-booster-data","status":"ok","version":1}"""));
+        }));
+        var state = new ReadinessState(_time, _metrics);
+        var probe = new DataApiReadinessProbe(client, Options(), state, _time);
+        using var hosted = new DataApiReadinessHostedService(probe, _time);
+        await hosted.StartAsync(TestContext.Current.CancellationToken);
+        await WaitUntilAsync(() => Volatile.Read(ref calls) == 1);
+
+        _time.Advance(TimeSpan.FromSeconds(2));
+        await WaitUntilAsync(() => _time.TimerCount == 1);
+        Assert.False(state.IsDataApiReady);
+
+        _time.Advance(TimeSpan.FromSeconds(30));
+        await WaitUntilAsync(() => Volatile.Read(ref calls) == 2);
+        await WaitUntilAsync(() => state.IsDataApiReady);
+
+        firstResponse.SetResult(Json(HttpStatusCode.ServiceUnavailable, "{}"));
+        await Task.Yield();
+        Assert.True(state.IsDataApiReady);
+        Assert.Equal(2, calls);
+        await hosted.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task NewerReadinessGenerationCannotBeOverwrittenByOlderCompletion()
+    {
+        var calls = 0;
+        var firstResponse = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var client = new HttpClient(new Handler((_, _) =>
+        {
+            if (Interlocked.Increment(ref calls) == 1)
+                return firstResponse.Task;
+            return Task.FromResult(Json(HttpStatusCode.OK,
+                """{"service":"spotify-booster-data","status":"ok","version":1}"""));
+        }));
+        var state = new ReadinessState(_time, _metrics);
+        var probe = new DataApiReadinessProbe(client, Options(), state, _time);
+        var older = probe.ProbeAsync(TestContext.Current.CancellationToken);
+        await WaitUntilAsync(() => Volatile.Read(ref calls) == 1);
+
+        Assert.True(await probe.ProbeAsync(TestContext.Current.CancellationToken));
+        Assert.True(state.IsDataApiReady);
+
+        firstResponse.SetResult(Json(HttpStatusCode.ServiceUnavailable, "{}"));
+        Assert.False(await older);
+        Assert.True(state.IsDataApiReady);
     }
 
     [Fact]
