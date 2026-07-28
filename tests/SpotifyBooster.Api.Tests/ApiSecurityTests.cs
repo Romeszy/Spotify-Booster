@@ -503,19 +503,38 @@ public sealed class ApiSecurityTests : IDisposable
     [Fact]
     public async Task ConcurrentFailedPurgesInvalidateNonCooperativeOldFetchAndRemainUnready()
     {
+        var decisions = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        var staleCompletion = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var metrics = new ApiMetrics();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, current) =>
+        {
+            if (ReferenceEquals(instrument, metrics.JwksDecisions))
+                current.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((_, _, tags, _) =>
+        {
+            var value = tags.ToArray().Single().Value!.ToString()!;
+            decisions.Enqueue(value);
+            if (value == "stale_completion_discarded")
+                staleCompletion.TrySetResult();
+        });
+        listener.Start();
         var oldResponse = new TaskCompletionSource<HttpResponseMessage>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var purgeResponse = new TaskCompletionSource<HttpResponseMessage>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var purgeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var calls = 0;
-        using var coordinator = Coordinator((_, _) =>
+        using var client = new HttpClient(new Handler((_, _) =>
         {
             var call = Interlocked.Increment(ref calls);
             if (call == 1) return oldResponse.Task;
             purgeStarted.TrySetResult();
             return purgeResponse.Task;
-        });
+        }));
+        using var coordinator = new JwksCoordinator(client, Options(), _time, metrics);
         var old = coordinator.FindAsync("compromised", TestContext.Current.CancellationToken);
         await WaitUntilAsync(() => Volatile.Read(ref calls) == 1);
         var firstPurge = coordinator.PurgeAsync(TestContext.Current.CancellationToken);
@@ -524,8 +543,11 @@ public sealed class ApiSecurityTests : IDisposable
         Assert.Equal(2, calls);
         purgeResponse.SetResult(Json(HttpStatusCode.ServiceUnavailable, "{}"));
         await Task.WhenAll(firstPurge, secondPurge);
-        oldResponse.SetResult(Json(HttpStatusCode.OK, RsaJwks("compromised")));
-        Assert.Null(await old);
+        var oldResult = await old;
+        oldResponse.SetResult(Json(HttpStatusCode.ServiceUnavailable, "{}"));
+        await staleCompletion.Task.WaitAsync(TestContext.Current.CancellationToken);
+        Assert.Contains("stale_completion_discarded", decisions);
+        Assert.Null(oldResult);
         Assert.False(coordinator.IsReady);
         Assert.Null(await coordinator.FindAsync("compromised", TestContext.Current.CancellationToken));
         Assert.Equal(2, calls);
@@ -632,7 +654,7 @@ public sealed class ApiSecurityTests : IDisposable
         using var listener = new MeterListener();
         listener.InstrumentPublished = (instrument, current) =>
         {
-            if (instrument.Meter.Name == "SpotifyBooster.Api")
+            if (ReferenceEquals(instrument.Meter, _metrics.JwksRefresh.Meter))
                 current.EnableMeasurementEvents(instrument);
         };
         listener.SetMeasurementEventCallback<double>((instrument, value, tags, _) =>
@@ -660,7 +682,7 @@ public sealed class ApiSecurityTests : IDisposable
         using var listener = new MeterListener();
         listener.InstrumentPublished = (instrument, current) =>
         {
-            if (instrument.Meter.Name == "SpotifyBooster.Api")
+            if (ReferenceEquals(instrument.Meter, metrics.JwksRefresh.Meter))
                 current.EnableMeasurementEvents(instrument);
         };
         listener.SetMeasurementEventCallback<long>((instrument, _, tags, _) =>
@@ -690,7 +712,7 @@ public sealed class ApiSecurityTests : IDisposable
         using var listener = new MeterListener();
         listener.InstrumentPublished = (instrument, current) =>
         {
-            if (instrument.Name == "jwks_decision_events_total")
+            if (ReferenceEquals(instrument, metrics.JwksDecisions))
                 current.EnableMeasurementEvents(instrument);
         };
         listener.SetMeasurementEventCallback<long>((_, _, tags, _) =>
@@ -732,7 +754,7 @@ public sealed class ApiSecurityTests : IDisposable
         using var listener = new MeterListener();
         listener.InstrumentPublished = (instrument, current) =>
         {
-            if (instrument.Name == "readiness_transitions_total")
+            if (ReferenceEquals(instrument, metrics.ReadinessTransitions))
                 current.EnableMeasurementEvents(instrument);
         };
         listener.SetMeasurementEventCallback<long>((_, _, tags, _) =>
@@ -757,7 +779,7 @@ public sealed class ApiSecurityTests : IDisposable
         using var listener = new MeterListener();
         listener.InstrumentPublished = (instrument, current) =>
         {
-            if (instrument.Name == "data_api_requests_total")
+            if (ReferenceEquals(instrument, metrics.DataApiRequests))
                 current.EnableMeasurementEvents(instrument);
         };
         listener.SetMeasurementEventCallback<long>((_, _, tags, _) =>
@@ -790,7 +812,7 @@ public sealed class ApiSecurityTests : IDisposable
         using var listener = new MeterListener();
         listener.InstrumentPublished = (instrument, current) =>
         {
-            if (instrument.Name == "jwks_refresh_total")
+            if (ReferenceEquals(instrument, metrics.JwksRefresh))
                 current.EnableMeasurementEvents(instrument);
         };
         listener.SetMeasurementEventCallback<long>((_, _, tags, _) =>
@@ -826,6 +848,318 @@ public sealed class ApiSecurityTests : IDisposable
     }
 
     [Fact]
+    public async Task MeterListenerCapturesTimeoutInvalidDocumentAndInvalidationResults()
+    {
+        var refreshes = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        var decisions = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var metrics = new ApiMetrics();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, current) =>
+        {
+            if (ReferenceEquals(instrument, metrics.JwksRefresh) ||
+                ReferenceEquals(instrument, metrics.JwksDecisions))
+                current.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, _, tags, _) =>
+        {
+            var labels = MetricLabels(tags);
+            if (ReferenceEquals(instrument, metrics.JwksRefresh))
+                refreshes.Enqueue(labels);
+            else
+                decisions.Enqueue(labels);
+        });
+        listener.Start();
+
+        var invalidTime = new FakeTimeProvider(DateTimeOffset.Parse("2026-01-01T00:00:00Z"));
+        using (var invalidClient = new HttpClient(new Handler((_, _) =>
+                   Task.FromResult(Json(HttpStatusCode.OK, "{private-invalid-document")))))
+        using (var invalid = new JwksCoordinator(invalidClient, Options(), invalidTime, metrics))
+            Assert.Null(await invalid.FindAsync("private-kid@example.test",
+                TestContext.Current.CancellationToken));
+
+        var timeoutTime = new FakeTimeProvider(DateTimeOffset.Parse("2026-01-01T00:00:00Z"));
+        var timeoutResponse = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var timeoutStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var timeoutDiscarded = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using (var timeoutClient = new HttpClient(new Handler((_, _) =>
+               {
+                   timeoutStarted.TrySetResult();
+                   return timeoutResponse.Task;
+               })))
+        using (var timeout = new JwksCoordinator(timeoutClient, Options(), timeoutTime, metrics))
+        {
+            var pending = timeout.FindAsync("timeout-private-kid",
+                TestContext.Current.CancellationToken);
+            await timeoutStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+            await WaitUntilAsync(() => timeoutTime.TimerCount == 1);
+            timeoutTime.Advance(TimeSpan.FromSeconds(5));
+            Assert.Null(await pending.WaitAsync(TestContext.Current.CancellationToken));
+            timeoutResponse.SetResult(Json(HttpStatusCode.ServiceUnavailable, "{}"));
+            await WaitUntilAsync(() =>
+            {
+                var observed = decisions.Any(value =>
+                    value == "event=stale_completion_discarded");
+                if (observed) timeoutDiscarded.TrySetResult();
+                return observed;
+            });
+            await timeoutDiscarded.Task.WaitAsync(TestContext.Current.CancellationToken);
+        }
+
+        var oldResponse = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var purgeResponse = new TaskCompletionSource<HttpResponseMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        var purgeTime = new FakeTimeProvider(DateTimeOffset.Parse("2026-01-01T00:00:00Z"));
+        using (var purgeClient = new HttpClient(new Handler((_, _) =>
+               Interlocked.Increment(ref calls) == 1 ? oldResponse.Task : purgeResponse.Task)))
+        using (var purge = new JwksCoordinator(purgeClient, Options(), purgeTime, metrics))
+        {
+            var old = purge.FindAsync("invalidated-private-kid",
+                TestContext.Current.CancellationToken);
+            await WaitUntilAsync(() => Volatile.Read(ref calls) == 1);
+            var administrative = purge.PurgeAsync(TestContext.Current.CancellationToken);
+            await WaitUntilAsync(() => Volatile.Read(ref calls) == 2);
+            purgeResponse.SetResult(Json(HttpStatusCode.ServiceUnavailable, "{}"));
+            await administrative;
+            Assert.Null(await old);
+            oldResponse.SetResult(Json(HttpStatusCode.ServiceUnavailable, "{}"));
+            await WaitUntilAsync(() => decisions.Count(value =>
+                value == "event=stale_completion_discarded") >= 2);
+        }
+
+        Assert.Contains(refreshes, value =>
+            value == "result=invalid_document|trigger=cold_start");
+        Assert.Contains(refreshes, value =>
+            value == "result=timeout|trigger=cold_start");
+        Assert.Contains(refreshes, value =>
+            value == "result=invalidated|trigger=cold_start");
+        Assert.All(refreshes, value => Assert.Matches(
+            "^result=(success|timeout|http_error|invalid_document|invalidated)\\|" +
+            "trigger=(cold_start|expiry|retry|unknown_kid|admin_purge)$", value));
+        Assert.All(decisions, value => Assert.Matches(
+            "^event=(leader_created|joined_inflight|retry_gate_rejected|" +
+            "unknown_cooldown_rejected|validation_succeeded_after_refresh|" +
+            "unknown_after_refresh|stale_completion_discarded|epoch_invalidated|" +
+            "generation_invalidated)$", value));
+        Assert.DoesNotContain(refreshes.Concat(decisions), value =>
+            value.Contains("private", StringComparison.Ordinal) ||
+            value.Contains('@'));
+    }
+
+    [Fact]
+    public async Task MeterListenerCapturesEveryClosedJwtRejectionReason()
+    {
+        var reasons = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var metrics = new ApiMetrics();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, current) =>
+        {
+            if (ReferenceEquals(instrument, metrics.JwtRejections))
+                current.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((_, value, tags, _) =>
+        {
+            Assert.Equal(1, value);
+            reasons.Enqueue(MetricLabels(tags));
+        });
+        listener.Start();
+        using var client = new HttpClient(new Handler((_, _) =>
+            Task.FromResult(Json(HttpStatusCode.OK, RsaJwks("known")))));
+        using var coordinator = new JwksCoordinator(client, Options(), _time, metrics);
+        var validator = new SupabaseJwtValidator(coordinator, Options(), _time, metrics);
+        var subject = Guid.NewGuid();
+        var expiration = _time.GetUtcNow().AddMinutes(5);
+
+        Assert.False((await validator.ValidateAsync("person@example.test",
+            TestContext.Current.CancellationToken)).Succeeded);
+        Assert.False((await validator.ValidateAsync(
+            Token("HS256", "private-kid", subject, expiration),
+            TestContext.Current.CancellationToken)).Succeeded);
+        Assert.False((await validator.ValidateAsync(
+            CorruptSignature(Token("RS256", "known", subject, expiration)),
+            TestContext.Current.CancellationToken)).Succeeded);
+        Assert.False((await validator.ValidateAsync(
+            Token("RS256", "known", subject, expiration, issuer: "https://private.example"),
+            TestContext.Current.CancellationToken)).Succeeded);
+        Assert.False((await validator.ValidateAsync(
+            Token("RS256", "known", subject, expiration, audience: "private-audience"),
+            TestContext.Current.CancellationToken)).Succeeded);
+        Assert.False((await validator.ValidateAsync(
+            Token("RS256", "known", subject, _time.GetUtcNow().AddMinutes(-2)),
+            TestContext.Current.CancellationToken)).Succeeded);
+        Assert.False((await validator.ValidateAsync(
+            Token("RS256", "known", subject, expiration,
+                notBefore: _time.GetUtcNow().AddMinutes(2)),
+            TestContext.Current.CancellationToken)).Succeeded);
+        Assert.False((await validator.ValidateAsync(
+            Token("RS256", "known", subject, expiration, invalidNotBefore: true),
+            TestContext.Current.CancellationToken)).Succeeded);
+        Assert.False((await validator.ValidateAsync(
+            Token("RS256", "known", null, expiration),
+            TestContext.Current.CancellationToken)).Succeeded);
+        Assert.False((await validator.ValidateAsync(
+            Token("RS256", "private-kid-person@example.test", subject, expiration),
+            TestContext.Current.CancellationToken)).Succeeded);
+
+        Assert.Equal(10, reasons.Count);
+        Assert.Equal(
+            "audience,expired,invalid_algorithm,invalid_signature,issuer,malformed," +
+            "malformed,missing_subject,not_yet_valid,unknown_kid",
+            string.Join(',', reasons.Select(value => value["reason=".Length..])
+                .OrderBy(static value => value, StringComparer.Ordinal)));
+        Assert.All(reasons, value => Assert.Matches(
+            "^reason=(unknown_kid|invalid_signature|invalid_algorithm|issuer|audience|" +
+            "expired|not_yet_valid|malformed|missing_subject)$", value));
+        Assert.DoesNotContain(reasons, value =>
+            value.Contains(subject.ToString(), StringComparison.Ordinal) ||
+            value.Contains("private", StringComparison.Ordinal) ||
+            value.Contains('@'));
+    }
+
+    [Fact]
+    public async Task MeterListenerCapturesEveryDataResultAndOneClosedRateLimitRejection()
+    {
+        var measurements =
+            new System.Collections.Concurrent.ConcurrentQueue<(string Name, double Value, string Labels)>();
+        using var metrics = new ApiMetrics();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, current) =>
+        {
+            if (ReferenceEquals(instrument, metrics.DataApiRequests) ||
+                ReferenceEquals(instrument, metrics.DataApiDuration) ||
+                ReferenceEquals(instrument, metrics.RateLimitRejections))
+                current.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+            measurements.Enqueue((instrument.Name, value, MetricLabels(tags))));
+        listener.SetMeasurementEventCallback<double>((instrument, value, tags, _) =>
+            measurements.Enqueue((instrument.Name, value, MetricLabels(tags))));
+        listener.Start();
+        var subject = Guid.NewGuid();
+        const string token = "private-token-person@example.test";
+        var success = JsonSerializer.Serialize(new
+        {
+            userId = subject,
+            displayName = (string?)null,
+            plan = "free",
+            status = "active",
+            revision = 1,
+            features = Array.Empty<string>()
+        });
+
+        async Task ExpectSuccessAsync(
+            Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send)
+        {
+            using var client = new HttpClient(new Handler(send));
+            _ = await new DataApiClient(client, Options(), metrics).GetMeAsync(
+                subject, token, TestContext.Current.CancellationToken);
+        }
+
+        async Task ExpectDataFailureAsync(
+            Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send,
+            TimeSpan? clientTimeout = null)
+        {
+            using var client = new HttpClient(new Handler(send));
+            if (clientTimeout is not null) client.Timeout = clientTimeout.Value;
+            await Assert.ThrowsAsync<DataApiException>(() =>
+                new DataApiClient(client, Options(), metrics).GetMeAsync(
+                    subject, token, TestContext.Current.CancellationToken));
+        }
+
+        await ExpectSuccessAsync((_, _) =>
+            Task.FromResult(Json(HttpStatusCode.OK, success)));
+        await ExpectDataFailureAsync((_, _) =>
+            Task.FromResult(Json(HttpStatusCode.BadRequest, "{}")));
+        await ExpectDataFailureAsync((_, _) =>
+            Task.FromResult(Json(HttpStatusCode.ServiceUnavailable, "{}")));
+        await ExpectDataFailureAsync((_, _) =>
+            Task.FromException<HttpResponseMessage>(
+                new HttpRequestException("private-host.example")));
+        await ExpectDataFailureAsync((_, _) =>
+            Task.FromResult(Json(HttpStatusCode.OK, "{private-invalid-json")));
+        await ExpectDataFailureAsync((_, _) =>
+            Task.FromResult(Json(HttpStatusCode.OK, new string('x', 300_000))));
+        await ExpectDataFailureAsync(async (_, cancellationToken) =>
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return Json(HttpStatusCode.OK, success);
+        }, TimeSpan.FromMilliseconds(10));
+        using (var cancelled = new CancellationTokenSource())
+        using (var cancelledClient = new HttpClient(new Handler(async (_, cancellationToken) =>
+               {
+                   await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                   return Json(HttpStatusCode.OK, success);
+               })))
+        {
+            cancelled.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                new DataApiClient(cancelledClient, Options(), metrics).GetMeAsync(
+                    subject, token, cancelled.Token));
+        }
+        await ExpectDataFailureAsync((_, _) => Task.FromResult(Json(HttpStatusCode.OK,
+            success.Replace(subject.ToString(), Guid.NewGuid().ToString(),
+                StringComparison.Ordinal))));
+        await ExpectDataFailureAsync((_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.Redirect)));
+
+        var limiter = new FixedWindowLimiter(_time);
+        var middleware = new ApiRateLimitingMiddleware(_ => Task.CompletedTask);
+        for (var request = 0; request < 31; request++)
+        {
+            var context = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+            context.Request.Path = "/v1/me";
+            context.Response.Body = new MemoryStream();
+            context.User = new System.Security.Claims.ClaimsPrincipal(
+                new System.Security.Claims.ClaimsIdentity(
+                    [new System.Security.Claims.Claim("sub", subject.ToString())], "test"));
+            await middleware.InvokeAsync(context, limiter, metrics);
+        }
+
+        var counters = measurements.Where(value =>
+            value.Name == "data_api_requests_total").ToArray();
+        var durations = measurements.Where(value =>
+            value.Name == "data_api_duration_seconds").ToArray();
+        var rateLimits = measurements.Where(value =>
+            value.Name == "rate_limit_rejections_total").ToArray();
+        Assert.Equal(20, counters.Length);
+        Assert.Equal(20, durations.Length);
+        Assert.All(counters, value =>
+        {
+            Assert.Equal(1, value.Value);
+            Assert.Matches(
+                "^operation=(entitlement|profile)\\|result=(success|4xx|5xx|timeout|" +
+                "cancelled|subject_mismatch|redirect_rejected)$", value.Labels);
+        });
+        Assert.All(durations, value =>
+        {
+            Assert.True(value.Value >= 0);
+            Assert.Matches(
+                "^operation=(entitlement|profile)\\|result=(success|4xx|5xx|timeout|" +
+                "cancelled|subject_mismatch|redirect_rejected)$", value.Labels);
+        });
+        Assert.Equal("4xx,5xx,cancelled,redirect_rejected,subject_mismatch,success,timeout",
+            string.Join(',', counters.Select(value =>
+                    value.Labels.Split("result=", StringSplitOptions.None)[1])
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(static value => value, StringComparer.Ordinal)));
+        Assert.Equal(8, counters.Count(value =>
+            value.Labels.EndsWith("result=5xx", StringComparison.Ordinal)));
+        var rejection = Assert.Single(rateLimits);
+        Assert.Equal(1, rejection.Value);
+        Assert.Equal("policy=authenticated_api", rejection.Labels);
+        Assert.DoesNotContain(measurements, value =>
+            value.Labels.Contains(token, StringComparison.Ordinal) ||
+            value.Labels.Contains(subject.ToString(), StringComparison.Ordinal) ||
+            value.Labels.Contains("private", StringComparison.Ordinal) ||
+            value.Labels.Contains('@', StringComparison.Ordinal) ||
+            value.Labels.Contains("http", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task CacheAgeAndRetryCooldownGaugesRespectExactBoundaries()
     {
         var cacheAges = new List<double>();
@@ -834,8 +1168,9 @@ public sealed class ApiSecurityTests : IDisposable
         using var listener = new MeterListener();
         listener.InstrumentPublished = (instrument, current) =>
         {
-            if (instrument.Name is "jwks_cache_age_seconds" or
-                "jwks_retry_cooldown_remaining_seconds")
+            if (ReferenceEquals(instrument.Meter, metrics.JwksRefresh.Meter) &&
+                instrument.Name is "jwks_cache_age_seconds" or
+                    "jwks_retry_cooldown_remaining_seconds")
                 current.EnableMeasurementEvents(instrument);
         };
         listener.SetMeasurementEventCallback<double>((instrument, value, _, _) =>
@@ -969,6 +1304,19 @@ public sealed class ApiSecurityTests : IDisposable
         };
         return header + "." + payload + "." + Encode(signature);
     }
+    private static string CorruptSignature(string token)
+    {
+        var parts = token.Split('.');
+        var padded = parts[2].Replace('-', '+').Replace('_', '/');
+        padded += new string('=', (4 - padded.Length % 4) % 4);
+        var signature = Convert.FromBase64String(padded);
+        signature[0] ^= 0x80;
+        return parts[0] + "." + parts[1] + "." + Encode(signature);
+    }
+    private static string MetricLabels(
+        ReadOnlySpan<KeyValuePair<string, object?>> tags) =>
+        string.Join("|", tags.ToArray().OrderBy(static tag => tag.Key)
+            .Select(static tag => $"{tag.Key}={tag.Value}"));
     private static string Encode(byte[] value) => Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
     private static HttpResponseMessage Json(HttpStatusCode status, string body) =>
         new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
@@ -1010,6 +1358,7 @@ public sealed class ApiSecurityTests : IDisposable
         public override long TimestampFrequency => 1_000_000;
         public override long GetTimestamp() => Volatile.Read(ref _timestamp);
         public override DateTimeOffset GetUtcNow() => _utcNow;
+        public int TimerCount { get { lock (_sync) return _timers.Count; } }
         public void Advance(TimeSpan value)
         {
             _utcNow += value;
