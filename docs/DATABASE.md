@@ -103,18 +103,30 @@ La CLI a annoncé exactement `2.109.1`. Le démarrage, les resets, le lint,
 arrêtée.
 
 `SSL_CERT_FILE` désigne la CA locale explicite : cette voie valide la chaîne et
-le nom TLS, sans HTTP ni acceptation permissive. Le dialogue Windows d’ajout du
-certificat à `CurrentUser\Root` est resté bloqué dans l’environnement du gate ;
-aucun certificat n’a été ajouté au magasin Windows. Le JWKS a été vérifié
-séparément avec `curl --cacert`.
+le nom TLS, sans HTTP ni acceptation permissive. Le gate Linux n’installe aucun
+certificat dans Windows. Un résidu précédemment identifié dans
+`CurrentUser\Root` a été supprimé ; la validation finale doit conserver un
+compte nul. Le JWKS a été vérifié séparément avec `curl --cacert`.
 
 `test:db:atomicity` ajoute uniquement pendant le test une migration versionnée
-jetable qui crée une table puis appelle une fonction inexistante. Avec la CLI
-exacte `2.109.1`, le runner doit échouer et les deux requêtes de preuve doivent
-retourner faux : ni `to_regclass(...)`, ni la version dans
-`supabase_migrations.schema_migrations` ne subsistent. Le fichier, l’objet
-défensif et toute version résiduelle sont supprimés par trap, puis un reset
-propre est rejoué avant l’E2E.
+jetable qui crée une table puis lève une exception SQL volontaire, identifiée
+par une sentinelle dédiée et le SQLSTATE fixe `P0001`. Avec la CLI exacte
+`2.109.1`, le gate exige d’abord une ligne `ERROR` associant cette sentinelle
+au contexte `(SQLSTATE P0001)` dans la sortie du runner : un simple écho SQL,
+une panne TLS, CLI ou parseur ne peut donc pas servir de preuve. Il vérifie
+ensuite que ni `to_regclass(...)`, ni la version dans
+`supabase_migrations.schema_migrations` ne subsistent. Le log du runner est
+scanné sans afficher son contenu, puis le fichier, l’objet défensif et toute
+version résiduelle sont supprimés par trap. Un reset propre est rejoué avant
+l’E2E.
+
+Le gate Linux télécharge directement l’archive officielle du SDK .NET
+`8.0.423`, vérifie son SHA-512 fixé avant extraction et n’exécute aucun script
+d’installation distant. Les sorties potentiellement sensibles de `supabase
+start` et `db reset` sont rejetées. Tous les autres fichiers `*.log` du
+répertoire temporaire sont scannés avant suppression pour les JWT, bearer,
+refresh tokens, e-mails fixtures, credentials/connexions PostgreSQL, clés
+Supabase complètes et matériau JWK privé.
 
 En échec :
 

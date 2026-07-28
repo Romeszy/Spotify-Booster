@@ -16,20 +16,25 @@ n’est livré.
 | Desktop/Audio | énumération, route, moteur, métriques, récupération | Audio `27` tests |
 | DSP | pipeline modulaire, stabilité numérique, `+75 dB` | DSP `90` tests |
 | Core/Infrastructure | validation V3, migration V1/V2, persistance | Core `90` tests |
-| API | JWT/JWKS borné à 32 clés, `/health/*`, `/v1/me`, rate limiting, métriques | API `92/92` tests |
+| API | JWT/JWKS borné à 32 clés, `/health/*`, `/v1/me`, rate limiting, métriques | API `94/94` tests |
 | Auth | contrats, appels Supabase, refresh/logout, redaction | Auth `45` tests |
 | Tooling Node | bootstrap/assets locaux, gate E2E et atomicité | Node `18/18`, lint réussi, audit `0` |
 | PostgreSQL/RLS | schéma, grants, policies, triggers, RPC health/me | pgTAP `110/110`, atomicité et E2E Auth/API TLS réussis |
 
 La restauration verrouillée et le build Release des 13 projets réussissent
-avec `0` avertissement et `0` erreur. Le test complet réussit `344/344`
-(Audio `27`, Core `90`, DSP `90`, Auth `45`, API `92`). Pour la voie
+avec `0` avertissement et `0` erreur. Le test complet réussit `346/346`
+(Audio `27`, Core `90`, DSP `90`, Auth `45`, API `94`). Pour la voie
 API/backend actuelle, la CLI Supabase exacte `2.109.1`,
 Node contrôlé avant `npm ci --offline`, le démarrage, deux resets depuis zéro,
 le lint PostgreSQL, pgTAP `110/110`, l’atomicité du runner, l’E2E Auth/API réel
 à deux utilisateurs, la panne/récupération readiness et la lecture JWKS avec
-`curl --cacert` ont réussi sous WSL avec CA explicite. Stack, API, SDK Linux
-temporaire, utilisateurs et logs temporaires ont ensuite été supprimés.
+`curl --cacert` ont réussi sous WSL avec CA explicite. Le gate renforcé fixe
+l’archive officielle du SDK Linux `8.0.423` et son SHA-512 avant extraction,
+exige une ligne `ERROR` liant la sentinelle au contexte `(SQLSTATE P0001)`
+avant toute preuve d’atomicité, rejette les sorties start/reset et scanne tous
+les autres logs temporaires. Stack, API,
+SDK Linux temporaire, utilisateurs et logs temporaires ont ensuite été
+supprimés.
 
 Les audits NuGet et npm ne détectent aucune vulnérabilité. L’audit NuGet des
 packages dépréciés remonte toutefois des transitifs `5.0.0` hérités de
@@ -98,9 +103,9 @@ projet, `System.Diagnostics.DiagnosticSource`). Cet avertissement amont reste
 - la disponibilité JWKS/Data API conditionne l’API ;
 - le certificat et les clés locales deviennent sensibles s’ils quittent
   `.local` ;
-- le dialogue Windows d’ajout à `CurrentUser\Root` est resté bloqué pendant le
-  gate ; aucun certificat n’a été ajouté, la preuve TLS stricte a utilisé la CA
-  explicite sous WSL ;
+- le gate Linux n’installe aucun certificat Windows ; le résidu précédemment
+  présent dans `CurrentUser\Root` a été supprimé et la preuve TLS stricte
+  utilise la CA explicite sous WSL ;
 - .NET 8 sort du support le 10 novembre 2026.
 
 ## Prochaine étape

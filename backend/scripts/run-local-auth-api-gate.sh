@@ -8,11 +8,30 @@ PROJECT_ID='spotify-booster-commercial-phase-a'
 PUBLISHABLE_KEY='sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH'
 TOOL_DIR="$(mktemp -d /tmp/spotify-booster-validation.XXXXXX)"
 DOTNET_DIR="$TOOL_DIR/dotnet"
+DOTNET_SDK_VERSION='8.0.423'
+DOTNET_SDK_ARCHIVE="$TOOL_DIR/dotnet-sdk-${DOTNET_SDK_VERSION}-linux-x64.tar.gz"
+DOTNET_SDK_URL="https://builds.dotnet.microsoft.com/dotnet/Sdk/${DOTNET_SDK_VERSION}/dotnet-sdk-${DOTNET_SDK_VERSION}-linux-x64.tar.gz"
+DOTNET_SDK_SHA512='e94513dfe42271a85f01e87bd4272aa80b4ec13556f4531754802542225667775242c5e281a94837dae6cc65f7bcc457d2f663f240c0e2b7573fd909e786b1a5'
 CLI=''
 API_PID=''
 CURRENT_STAGE='initialization'
 
+scan_temporary_logs() {
+  local log_file
+  local forbidden_pattern
+  forbidden_pattern='authorization:[[:space:]]*bearer|refresh_token|@example\.invalid|eyJ[A-Za-z0-9_-]{7,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|sb_(publishable|secret)_[A-Za-z0-9_-]{20,}|service_role|BEGIN[[:space:]]+(RSA |EC )?PRIVATE KEY|postgres(ql)?://[^[:space:]]+|(database_url|db_password|pgpassword|password)[[:space:]]*[:=][[:space:]]*[^[:space:]]+|"(d|p|q|dp|dq|qi)"[[:space:]]*:[[:space:]]*"[A-Za-z0-9_-]{20,}"'
+
+  while IFS= read -r -d '' log_file; do
+    if grep -Eqi -- "$forbidden_pattern" "$log_file" >/dev/null 2>&1 ||
+       grep -Fq -- "$PUBLISHABLE_KEY" "$log_file" >/dev/null 2>&1; then
+      return 1
+    fi
+  done < <(find "$TOOL_DIR" -type f -name '*.log' -print0)
+}
+
 cleanup() {
+  local exit_code=$?
+  trap - EXIT INT TERM
   if [[ -n "$API_PID" ]]; then
     kill "$API_PID" >/dev/null 2>&1 || true
     wait "$API_PID" >/dev/null 2>&1 || true
@@ -20,12 +39,22 @@ cleanup() {
   if [[ -n "$CLI" && -x "$CLI" ]]; then
     "$CLI" stop --project-id "$PROJECT_ID" >/dev/null 2>&1 || true
   fi
+  if ! scan_temporary_logs; then
+    printf 'sensitive_log_scan=failed\n' >&2
+    exit_code=1
+  fi
   case "$TOOL_DIR" in
     /tmp/spotify-booster-validation.*) rm -rf -- "$TOOL_DIR" ;;
-    *) printf 'validation_cleanup=unsafe_path\n' >&2; return 99 ;;
+    *)
+      printf 'validation_cleanup=unsafe_path\n' >&2
+      exit_code=99
+      ;;
   esac
+  exit "$exit_code"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 trap 'printf "validation_stage=%s:failed\n" "$CURRENT_STAGE" >&2' ERR
 
 test -f "$CERT"
@@ -47,20 +76,22 @@ test "$("$CLI" --version)" = '2.109.1'
 
 CURRENT_STAGE='dotnet_linux_install'
 curl --fail --silent --show-error --location \
-  --output dotnet-install.sh https://dot.net/v1/dotnet-install.sh
-bash dotnet-install.sh --version 8.0.423 --install-dir "$DOTNET_DIR" \
-  --no-path >dotnet-install.log 2>&1
+  --output "$DOTNET_SDK_ARCHIVE" "$DOTNET_SDK_URL"
+printf '%s  %s\n' "$DOTNET_SDK_SHA512" "$DOTNET_SDK_ARCHIVE" |
+  sha512sum --check --status
+mkdir -p -- "$DOTNET_DIR"
+tar -xzf "$DOTNET_SDK_ARCHIVE" -C "$DOTNET_DIR"
 DOTNET="$DOTNET_DIR/dotnet"
 export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
-test "$("$DOTNET" --version)" = '8.0.423'
+test "$("$DOTNET" --version)" = "$DOTNET_SDK_VERSION"
 
 CURRENT_STAGE='supabase_start'
 timeout --foreground 180 env SSL_CERT_FILE="$CERT" \
-  "$CLI" start --workdir "$PROJECT" >start.log 2>&1
+  "$CLI" start --workdir "$PROJECT" >/dev/null 2>&1
 
 CURRENT_STAGE='database_reset'
 timeout --foreground 180 env SSL_CERT_FILE="$CERT" \
-  "$CLI" db reset --local --workdir "$PROJECT" >reset.log 2>&1
+  "$CLI" db reset --local --workdir "$PROJECT" >/dev/null 2>&1
 
 CURRENT_STAGE='database_lint'
 timeout --foreground 180 env SSL_CERT_FILE="$CERT" \
@@ -80,10 +111,12 @@ timeout --foreground 180 env \
   >atomicity.log 2>&1
 grep -q 'migration_atomicity_object_rollback=ok' atomicity.log
 grep -q 'migration_atomicity_version_rollback=ok' atomicity.log
+grep -q 'migration_atomicity_expected_sentinel=ok' atomicity.log
+grep -q 'migration_atomicity_log_scan=ok' atomicity.log
 
 CURRENT_STAGE='database_reset_after_atomicity'
 timeout --foreground 180 env SSL_CERT_FILE="$CERT" \
-  "$CLI" db reset --local --workdir "$PROJECT" >reset-after-atomicity.log 2>&1
+  "$CLI" db reset --local --workdir "$PROJECT" >/dev/null 2>&1
 
 cd "$REPOSITORY"
 CURRENT_STAGE='dotnet_restore'
@@ -154,9 +187,7 @@ grep -q 'readiness_stop_restart=ok' "$TOOL_DIR/e2e.log"
 grep -q 'sensitive_log_scan=ok' "$TOOL_DIR/e2e.log"
 
 CURRENT_STAGE='sensitive_log_scan'
-if grep -Eqi \
-  'authorization:[[:space:]]*bearer|refresh_token|@example\.invalid|eyJ[A-Za-z0-9_-]{7,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}' \
-  "$TOOL_DIR/api.log" "$TOOL_DIR/e2e.log"; then
+if ! scan_temporary_logs; then
   printf 'sensitive_log_scan=failed\n' >&2
   exit 1
 fi

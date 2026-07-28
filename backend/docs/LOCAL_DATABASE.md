@@ -33,6 +33,12 @@ is never substituted. `npm ci` is used, and Docker is checked before any stack
 start. The only conforming API origin is `https://127.0.0.1:54321`. There is no
 HTTP or permissive-certificate fallback.
 
+The Linux gate downloads the fixed official .NET SDK `8.0.423` archive and
+verifies its pinned SHA-512 before extraction. It does not download or execute
+`dotnet-install.sh`. Output from Supabase start/reset is discarded rather than
+persisted; every remaining temporary `*.log` file is scanned without echoing
+matched content before the temporary directory is removed.
+
 ## Local secret handling
 
 `supabase/.local/` is ignored by the nested `.gitignore`. It contains only
@@ -61,7 +67,8 @@ machine-local TLS and Auth signing material. The bootstrap:
   JWKS proof file, and other temporary files after failure or completion.
 
 Never commit, paste into logs, or attach `.local` files. Certificate trust is
-not changed unless `-TrustCertificate` is explicitly passed.
+not changed unless `-TrustCertificate` is explicitly passed. The automated
+Linux gate never installs a certificate in a Windows trust store.
 
 ## Schema and authorization boundary
 
@@ -92,3 +99,8 @@ length, refresh rotation, migration atomicity, real ASP.NET `/v1/me`,
 outage/recovery readiness, and TLS/JWKS behavior are runtime evidence and must
 not be reported as passing unless Docker and the explicitly trusted strict TLS
 origin were actually exercised.
+
+The atomicity probe is fail-closed: the migration runner must expose the
+dedicated SQL exception sentinel on an `ERROR` line with `(SQLSTATE P0001)`
+before rollback is assessed. Echoed SQL, a TLS, CLI, or parser failure is not
+accepted as rollback evidence.
