@@ -66,7 +66,7 @@ public sealed class JwksCoordinator : IDisposable
 
             if (_inFlight is not null)
             {
-                _metrics.JwksDecisions.Add(1, new("event", "joined_inflight"));
+                _metrics.JwksDecisions.Add(1, new KeyValuePair<string, object?>[] { new("event", "joined_inflight") });
                 fetch = _inFlight;
             }
             else
@@ -74,12 +74,12 @@ public sealed class JwksCoordinator : IDisposable
                 var mandatory = !_attemptedGeneration;
                 if (!mandatory && now < _retryNotBefore)
                 {
-                    _metrics.JwksDecisions.Add(1, new("event", "retry_gate_rejected"));
+                    _metrics.JwksDecisions.Add(1, new KeyValuePair<string, object?>[] { new("event", "retry_gate_rejected") });
                     return null;
                 }
                 if (!mandatory && now < _unknownNotBefore)
                 {
-                    _metrics.JwksDecisions.Add(1, new("event", "unknown_cooldown_rejected"));
+                    _metrics.JwksDecisions.Add(1, new KeyValuePair<string, object?>[] { new("event", "unknown_cooldown_rejected") });
                     return null;
                 }
                 var trigger = mandatory
@@ -88,7 +88,7 @@ public sealed class JwksCoordinator : IDisposable
                 _attemptedGeneration = true;
                 _unknownNotBefore = Add(now, Gate);
                 fetch = _inFlight = FetchAsync(_epoch, _generation, trigger);
-                _metrics.JwksDecisions.Add(1, new("event", "leader_created"));
+                _metrics.JwksDecisions.Add(1, new KeyValuePair<string, object?>[] { new("event", "leader_created") });
             }
         }
 
@@ -97,10 +97,10 @@ public sealed class JwksCoordinator : IDisposable
         {
             if (_snapshot?.Keys.TryGetValue(kid, out var key) == true)
             {
-                _metrics.JwksDecisions.Add(1, new("event", "validation_succeeded_after_refresh"));
+                _metrics.JwksDecisions.Add(1, new KeyValuePair<string, object?>[] { new("event", "validation_succeeded_after_refresh") });
                 return key;
             }
-            _metrics.JwksDecisions.Add(1, new("event", "unknown_after_refresh"));
+            _metrics.JwksDecisions.Add(1, new KeyValuePair<string, object?>[] { new("event", "unknown_after_refresh") });
             return null;
         }
     }
@@ -124,6 +124,9 @@ public sealed class JwksCoordinator : IDisposable
 
     private async Task<Snapshot?> FetchAsync(long epoch, long generation, JwksTrigger trigger)
     {
+        // Keep leader publication ordered after _inFlight is assigned, even for
+        // an entirely synchronous test handler.
+        await Task.Yield();
         var result = "invalid_document";
         Snapshot? created = null;
         try
@@ -149,7 +152,7 @@ public sealed class JwksCoordinator : IDisposable
         {
             lock (_sync)
             {
-                if (epoch == _epoch && generation == _generation && ReferenceEquals(_inFlight, Task.CurrentId is null ? _inFlight : _inFlight))
+                if (epoch == _epoch && generation == _generation)
                 {
                     if (created is not null)
                     {
@@ -165,7 +168,7 @@ public sealed class JwksCoordinator : IDisposable
                     DisposeSnapshot(created);
                     created = null;
                     result = "invalidated";
-                    _metrics.JwksDecisions.Add(1, new("event", "stale_completion_discarded"));
+                    _metrics.JwksDecisions.Add(1, new KeyValuePair<string, object?>[] { new("event", "stale_completion_discarded") });
                 }
             }
             _metrics.JwksRefresh.Add(1,
@@ -173,7 +176,7 @@ public sealed class JwksCoordinator : IDisposable
         }
     }
 
-    private Dictionary<string, JwkKey> Parse(byte[] bytes)
+    private static Dictionary<string, JwkKey> Parse(byte[] bytes)
     {
         using var document = JsonDocument.Parse(bytes);
         if (document.RootElement.ValueKind != JsonValueKind.Object ||

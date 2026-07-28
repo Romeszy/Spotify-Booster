@@ -5,13 +5,15 @@ using SpotifyBooster.Contracts.Auth;
 
 namespace SpotifyBooster.Auth;
 
-public sealed class SupabaseAuthenticationService : IAuthenticationService
+public sealed class SupabaseAuthenticationService : IAuthenticationService, IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly HttpClient _httpClient;
     private readonly SupabaseAuthOptions _options;
     private readonly IAuthSessionStore _store;
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
+    private readonly object _refreshSync = new();
+    private Task<AuthSessionContract>? _refreshTask;
     private volatile bool _signingOut;
 
     public SupabaseAuthenticationService(HttpClient httpClient, SupabaseAuthOptions options, IAuthSessionStore store)
@@ -68,16 +70,30 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService
 
     public async Task<AuthSessionContract> RefreshSessionAsync(CancellationToken cancellationToken = default)
     {
-        await _lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        Task<AuthSessionContract> shared;
+        lock (_refreshSync)
+            shared = _refreshTask ??= RefreshCoreAsync();
+        try { return await shared.WaitAsync(cancellationToken).ConfigureAwait(false); }
+        finally
+        {
+            if (shared.IsCompleted)
+                lock (_refreshSync)
+                    if (ReferenceEquals(_refreshTask, shared)) _refreshTask = null;
+        }
+    }
+
+    private async Task<AuthSessionContract> RefreshCoreAsync()
+    {
+        await _lifecycleGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         try
         {
             if (_signingOut) throw new InvalidOperationException("Sign-out is in progress.");
-            var current = await _store.ReadAsync(cancellationToken).ConfigureAwait(false)
+            var current = await _store.ReadAsync(CancellationToken.None).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("No active session.");
             var response = await SendAsync(HttpMethod.Post, "auth/v1/token?grant_type=refresh_token",
-                new { refresh_token = current.RefreshToken }, null, cancellationToken).ConfigureAwait(false);
+                new { refresh_token = current.RefreshToken }, null, CancellationToken.None).ConfigureAwait(false);
             var updated = ToContract(response);
-            await _store.WriteAsync(updated, cancellationToken).ConfigureAwait(false);
+            await _store.WriteAsync(updated, CancellationToken.None).ConfigureAwait(false);
             return updated;
         }
         finally { _lifecycleGate.Release(); }
@@ -96,10 +112,16 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService
     public async Task UpdatePasswordAsync(UpdatePasswordRequest request, CancellationToken cancellationToken = default)
     {
         ValidatePassword(request.Password);
-        var session = await _store.ReadAsync(cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException("No active session.");
-        await SendAsync(HttpMethod.Put, "auth/v1/user", new { password = request.Password },
-            session.AccessToken, cancellationToken).ConfigureAwait(false);
+        await _lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_signingOut) throw new InvalidOperationException("Sign-out is in progress.");
+            var session = await _store.ReadAsync(cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("No active session.");
+            await SendAsync(HttpMethod.Put, "auth/v1/user", new { password = request.Password },
+                session.AccessToken, cancellationToken).ConfigureAwait(false);
+        }
+        finally { _lifecycleGate.Release(); }
     }
 
     public ValueTask<AuthSessionContract?> GetSessionAsync(CancellationToken cancellationToken = default) =>
@@ -159,6 +181,8 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService
     {
         if (password.Length < 10) throw new ArgumentException("Password must contain at least 10 characters.", nameof(password));
     }
+
+    public void Dispose() => _lifecycleGate.Dispose();
 
     private sealed record AuthWireResponse(
         [property: JsonPropertyName("access_token")] string? AccessToken,

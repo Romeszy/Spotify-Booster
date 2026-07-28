@@ -19,7 +19,7 @@ public sealed record SupabaseApiOptions
             throw new InvalidOperationException("Issuer must use the configured HTTPS origin.");
         if (string.IsNullOrWhiteSpace(Audience))
             throw new InvalidOperationException("Audience is required.");
-        if (!JwksPath.StartsWith('/', StringComparison.Ordinal) ||
+        if (JwksPath.Length == 0 || JwksPath[0] != '/' ||
             Uri.TryCreate(JwksPath, UriKind.Absolute, out _) || JwksPath.Contains("..", StringComparison.Ordinal))
             throw new InvalidOperationException("JWKS path must be a fixed relative path.");
     }
