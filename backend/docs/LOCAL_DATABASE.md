@@ -7,16 +7,20 @@ production deployment and contains no production credentials.
 
 - Node.js `>=20` (the bootstrap rejects missing, malformed, or older versions
   before invoking npm);
-- PowerShell 7, OpenSSL, and Docker Desktop with the engine running;
+- Windows PowerShell 5.1+ or PowerShell 7, OpenSSL, and Docker Desktop with
+  the engine running;
 - an explicit decision by the developer to trust the generated loopback
   certificate in the current user account.
 
 From `backend`:
 
 ```powershell
-pwsh -NoProfile -File ./scripts/bootstrap-supabase-local.ps1 -SkipStart
+# Windows PowerShell 5.1+:
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/bootstrap-supabase-local.ps1 -SkipStart
 # Inspect ./supabase/config.toml and the certificate, then explicitly:
-pwsh -NoProfile -File ./scripts/bootstrap-supabase-local.ps1 -TrustCertificate
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/bootstrap-supabase-local.ps1 -TrustCertificate
+
+# With PowerShell 7, use pwsh instead of powershell.exe.
 npm run db:reset
 npm run db:lint
 npm run test:db
