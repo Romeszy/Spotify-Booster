@@ -26,7 +26,7 @@ public sealed record SupabaseApiOptions
             throw new InvalidOperationException("Issuer must use the configured HTTPS origin.");
         if (string.IsNullOrWhiteSpace(Audience))
             throw new InvalidOperationException("Audience is required.");
-        if (!IsNormativeJwksPath(JwksPath))
+        if (!string.Equals(JwksPath, NormativeJwksPath, StringComparison.Ordinal))
             throw new InvalidOperationException("JWKS path must be a fixed relative path.");
     }
 
@@ -52,21 +52,5 @@ public sealed record SupabaseApiOptions
             value.Contains("sb_secret", StringComparison.OrdinalIgnoreCase))
             return false;
         return value.AsSpan(prefix.Length).IndexOfAnyExcept(PublishableKeyCharacters) < 0;
-    }
-
-    private static bool IsNormativeJwksPath(string? path)
-    {
-        if (path is null || !string.Equals(path, NormativeJwksPath, StringComparison.Ordinal) ||
-            path.Length < 2 || path[0] != '/' || path[1] == '/' ||
-            path.AsSpan().IndexOfAny('\\', '?', '#') >= 0)
-            return false;
-
-        foreach (var segment in path.Split('/'))
-        {
-            if (segment is "." or "..")
-                return false;
-        }
-
-        return true;
     }
 }
