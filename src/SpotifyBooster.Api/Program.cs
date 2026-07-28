@@ -18,8 +18,15 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ApiMetrics>();
 builder.Services.AddSingleton<FixedWindowLimiter>();
 builder.Services.AddSingleton<ReadinessState>();
-builder.Services.AddHttpClient<JwksCoordinator>(client => client.BaseAddress = options.Origin)
+builder.Services.AddHttpClient(Program.JwksHttpClientName,
+        client => client.BaseAddress = options.Origin)
     .ConfigurePrimaryHttpMessageHandler(CreateStrictHandler);
+builder.Services.AddSingleton(provider => new JwksCoordinator(
+    provider.GetRequiredService<IHttpClientFactory>()
+        .CreateClient(Program.JwksHttpClientName),
+    provider.GetRequiredService<SupabaseApiOptions>(),
+    provider.GetRequiredService<TimeProvider>(),
+    provider.GetRequiredService<ApiMetrics>()));
 builder.Services.AddSingleton<SupabaseJwtValidator>();
 builder.Services.AddHttpClient<DataApiClient>(client => client.BaseAddress = options.Origin)
     .ConfigurePrimaryHttpMessageHandler(CreateStrictHandler);
@@ -85,4 +92,7 @@ app.Run();
 static HttpMessageHandler CreateStrictHandler() =>
     new HttpClientHandler { AllowAutoRedirect = false };
 
-public partial class Program;
+public partial class Program
+{
+    public const string JwksHttpClientName = "supabase-jwks";
+}

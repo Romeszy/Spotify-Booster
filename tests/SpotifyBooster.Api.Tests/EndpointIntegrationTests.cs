@@ -237,6 +237,31 @@ public sealed class EndpointIntegrationTests
             await degraded.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task JwksCoordinatorIsSharedByValidatorAndReadinessEndpoint()
+    {
+        await using var factory = new AuthenticatedFactory();
+        using var client = factory.CreateClient();
+        var coordinator = factory.Services.GetRequiredService<JwksCoordinator>();
+
+        Assert.Same(coordinator,
+            factory.Services.GetRequiredService<JwksCoordinator>());
+        Assert.Same(factory.Services.GetRequiredService<SupabaseJwtValidator>(),
+            factory.Services.GetRequiredService<SupabaseJwtValidator>());
+
+        var validation = await factory.Services
+            .GetRequiredService<SupabaseJwtValidator>()
+            .ValidateAsync(factory.Token("RS256", factory.Subject),
+                TestContext.Current.CancellationToken);
+        Assert.True(validation.Succeeded);
+        Assert.True(coordinator.IsReady);
+
+        factory.Services.GetRequiredService<ReadinessState>().ObserveDataApi(true);
+        using var ready = await client.GetAsync("/health/ready",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
+    }
+
     private static HttpRequestMessage Bearer(string path, string token)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, path);
@@ -262,12 +287,10 @@ public sealed class EndpointIntegrationTests
             builder.ConfigureLogging(logging => logging.AddProvider(_logs));
             builder.ConfigureServices(services =>
             {
-                services.RemoveAll<JwksCoordinator>();
                 services.RemoveAll<DataApiClient>();
                 services.RemoveAll<DataApiReadinessProbe>();
-                services.AddSingleton(provider => new JwksCoordinator(
-                    Client(Handle), provider.GetRequiredService<SupabaseApiOptions>(),
-                    provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<ApiMetrics>()));
+                services.AddHttpClient(Program.JwksHttpClientName)
+                    .ConfigurePrimaryHttpMessageHandler(() => new Handler(Handle));
                 services.AddSingleton(provider => new DataApiClient(
                     Client(Handle), provider.GetRequiredService<SupabaseApiOptions>(),
                     provider.GetRequiredService<ApiMetrics>()));
