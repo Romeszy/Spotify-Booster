@@ -5,21 +5,39 @@ using SpotifyBooster.Contracts.Auth;
 
 namespace SpotifyBooster.Auth;
 
-public sealed class SupabaseAuthenticationService : IAuthenticationService
+public sealed class SupabaseAuthenticationService : IAuthenticationService, IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private readonly HttpClient _httpClient;
+    private readonly StrictSupabaseAuthHttpClient _httpClient;
     private readonly SupabaseAuthOptions _options;
     private readonly IAuthSessionStore _store;
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
-    private volatile bool _signingOut;
+    private readonly object _refreshSync = new();
+    private readonly object _lifecycleSync = new();
+    private Task<AuthSessionContract>? _refreshTask;
+    private bool _signingOut;
+    private long _lifecycleEpoch;
 
-    public SupabaseAuthenticationService(HttpClient httpClient, SupabaseAuthOptions options, IAuthSessionStore store)
+    public SupabaseAuthenticationService(SupabaseAuthOptions options, IAuthSessionStore store)
+        : this(StrictSupabaseAuthHttpClient.CreateProduction(options), options, store)
+    {
+    }
+
+    internal SupabaseAuthenticationService(StrictSupabaseAuthHttpClient httpClient,
+        SupabaseAuthOptions options, IAuthSessionStore store)
     {
         _httpClient = httpClient;
         _options = options;
         _store = store;
         options.Validate();
+        if (_httpClient.DefaultRequestHeaders.Authorization is not null ||
+            _httpClient.DefaultRequestHeaders.Contains("apikey"))
+            throw new InvalidOperationException("Identity headers must be request-scoped.");
+        if (_httpClient.BaseAddress is null)
+            _httpClient.BaseAddress = options.BaseUri;
+        else if (_httpClient.BaseAddress.GetLeftPart(UriPartial.Authority) !=
+            options.BaseUri.GetLeftPart(UriPartial.Authority))
+            throw new InvalidOperationException("Auth client origin does not match configuration.");
     }
 
     public async Task<AuthSessionContract?> SignUpAsync(SignUpRequest request, CancellationToken cancellationToken = default)
@@ -33,51 +51,81 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService
     public async Task<AuthSessionContract> SignInAsync(SignInRequest request, CancellationToken cancellationToken = default)
     {
         ValidatePassword(request.Password);
+        var epoch = CaptureActiveEpoch();
         var response = await SendAsync(HttpMethod.Post, "auth/v1/token?grant_type=password",
             new { email = request.Email, password = request.Password }, null, cancellationToken).ConfigureAwait(false);
         var session = ToContract(response);
-        await _store.WriteAsync(session, cancellationToken).ConfigureAwait(false);
-        return session;
+        await _lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            EnsureEpochIsCurrent(epoch);
+            await _store.WriteAsync(session, cancellationToken).ConfigureAwait(false);
+            return session;
+        }
+        finally { _lifecycleGate.Release(); }
     }
 
     public async Task<SignOutResult> SignOutAsync(CancellationToken cancellationToken = default)
     {
-        await _lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        lock (_lifecycleSync)
+        {
+            if (_signingOut)
+                return new(RemoteRevocation.NotAttempted);
+            _signingOut = true;
+            _lifecycleEpoch = checked(_lifecycleEpoch + 1);
+        }
+        await _lifecycleGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         try
         {
-            _signingOut = true;
-            var session = await _store.ReadAsync(cancellationToken).ConfigureAwait(false);
+            var session = await _store.ReadAsync(CancellationToken.None).ConfigureAwait(false);
             if (session is null)
                 return new(RemoteRevocation.NotAttempted);
+            await _store.WriteAsync(null, CancellationToken.None).ConfigureAwait(false);
             try
             {
                 await SendWithoutBodyAsync(HttpMethod.Post, "auth/v1/logout?scope=local",
                     session.AccessToken, cancellationToken).ConfigureAwait(false);
                 return new(RemoteRevocation.Succeeded);
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (Exception) { return new(RemoteRevocation.Failed); }
+            catch (HttpRequestException) { return new(RemoteRevocation.Failed); }
+            catch (AuthenticationException) { return new(RemoteRevocation.Failed); }
+            catch (OperationCanceledException) { return new(RemoteRevocation.Failed); }
         }
         finally
         {
             await _store.WriteAsync(null, CancellationToken.None).ConfigureAwait(false);
-            _signingOut = false;
+            lock (_lifecycleSync) _signingOut = false;
             _lifecycleGate.Release();
         }
     }
 
     public async Task<AuthSessionContract> RefreshSessionAsync(CancellationToken cancellationToken = default)
     {
-        await _lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        Task<AuthSessionContract> shared;
+        lock (_refreshSync)
+            shared = _refreshTask ??= RefreshCoreAsync();
+        try { return await shared.WaitAsync(cancellationToken).ConfigureAwait(false); }
+        finally
+        {
+            if (shared.IsCompleted)
+                lock (_refreshSync)
+                    if (ReferenceEquals(_refreshTask, shared)) _refreshTask = null;
+        }
+    }
+
+    private async Task<AuthSessionContract> RefreshCoreAsync()
+    {
+        await _lifecycleGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         try
         {
-            if (_signingOut) throw new InvalidOperationException("Sign-out is in progress.");
-            var current = await _store.ReadAsync(cancellationToken).ConfigureAwait(false)
+            var epoch = CaptureActiveEpoch();
+            var current = await _store.ReadAsync(CancellationToken.None).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("No active session.");
             var response = await SendAsync(HttpMethod.Post, "auth/v1/token?grant_type=refresh_token",
-                new { refresh_token = current.RefreshToken }, null, cancellationToken).ConfigureAwait(false);
+                new { refresh_token = current.RefreshToken }, null, CancellationToken.None).ConfigureAwait(false);
             var updated = ToContract(response);
-            await _store.WriteAsync(updated, cancellationToken).ConfigureAwait(false);
+            EnsureEpochIsCurrent(epoch);
+            await _store.WriteAsync(updated, CancellationToken.None).ConfigureAwait(false);
             return updated;
         }
         finally { _lifecycleGate.Release(); }
@@ -90,20 +138,35 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService
     {
         try { await SendAndDiscardAsync("auth/v1/recover", new { email = request.Email }, cancellationToken).ConfigureAwait(false); }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-        catch (Exception) { } // Deliberately generic to prevent account enumeration.
+        catch (HttpRequestException) { } // Deliberately generic to prevent account enumeration.
+        catch (AuthenticationException) { }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { }
     }
 
     public async Task UpdatePasswordAsync(UpdatePasswordRequest request, CancellationToken cancellationToken = default)
     {
         ValidatePassword(request.Password);
-        var session = await _store.ReadAsync(cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException("No active session.");
-        await SendAsync(HttpMethod.Put, "auth/v1/user", new { password = request.Password },
-            session.AccessToken, cancellationToken).ConfigureAwait(false);
+        await _lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var epoch = CaptureActiveEpoch();
+            var session = await _store.ReadAsync(cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("No active session.");
+            if (session.AccessTokenExpiresAt <= DateTimeOffset.UtcNow)
+                throw new InvalidOperationException("The active session has expired.");
+            await SendAsync(HttpMethod.Put, "auth/v1/user", new { password = request.Password },
+                session.AccessToken, cancellationToken).ConfigureAwait(false);
+            EnsureEpochIsCurrent(epoch);
+        }
+        finally { _lifecycleGate.Release(); }
     }
 
-    public ValueTask<AuthSessionContract?> GetSessionAsync(CancellationToken cancellationToken = default) =>
-        _store.ReadAsync(cancellationToken);
+    public ValueTask<AuthSessionContract?> GetSessionAsync(CancellationToken cancellationToken = default)
+    {
+        lock (_lifecycleSync)
+            return _signingOut ? ValueTask.FromResult<AuthSessionContract?>(null) :
+                _store.ReadAsync(cancellationToken);
+    }
 
     private async Task SendAndDiscardAsync(string path, object body, CancellationToken cancellationToken) =>
         _ = await SendAsync(HttpMethod.Post, path, body, null, cancellationToken).ConfigureAwait(false);
@@ -117,9 +180,23 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService
         request.Content = JsonContent.Create(body);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(_options.Timeout);
-        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode) throw new AuthenticationException("Authentication request was rejected.");
-        return await ReadBoundedJsonAsync(response, timeout.Token).ConfigureAwait(false);
+        HttpResponseMessage response;
+        try
+        {
+            response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead,
+                timeout.Token).ConfigureAwait(false);
+        }
+        catch (HttpRequestException)
+        {
+            throw new AuthenticationException("Authentication transport failed.");
+        }
+        using (response)
+        {
+            EnsureNoRedirect(response);
+            if (!response.IsSuccessStatusCode)
+                throw new AuthenticationException("Authentication request was rejected.");
+            return await ReadBoundedJsonAsync(response, timeout.Token).ConfigureAwait(false);
+        }
     }
 
     private async Task SendWithoutBodyAsync(HttpMethod method, string path, string bearer, CancellationToken cancellationToken)
@@ -129,8 +206,28 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService
         request.Headers.Authorization = new("Bearer", bearer);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(_options.Timeout);
-        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode) throw new AuthenticationException("Authentication request was rejected.");
+        HttpResponseMessage response;
+        try
+        {
+            response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead,
+                timeout.Token).ConfigureAwait(false);
+        }
+        catch (HttpRequestException)
+        {
+            throw new AuthenticationException("Authentication transport failed.");
+        }
+        using (response)
+        {
+            EnsureNoRedirect(response);
+            if (response.StatusCode != System.Net.HttpStatusCode.NoContent)
+                throw new AuthenticationException("Authentication request was rejected.");
+        }
+    }
+
+    private static void EnsureNoRedirect(HttpResponseMessage response)
+    {
+        if ((int)response.StatusCode is >= 300 and < 400)
+            throw new AuthenticationException("Authentication redirect rejected.");
     }
 
     private async Task<AuthWireResponse> ReadBoundedJsonAsync(HttpResponseMessage response, CancellationToken cancellationToken)
@@ -157,7 +254,31 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService
 
     private static void ValidatePassword(string password)
     {
-        if (password.Length < 10) throw new ArgumentException("Password must contain at least 10 characters.", nameof(password));
+        if (string.IsNullOrEmpty(password) || password.Length < 10)
+            throw new ArgumentException("Password must contain at least 10 characters.", nameof(password));
+    }
+
+    public void Dispose()
+    {
+        _lifecycleGate.Dispose();
+        _httpClient.Dispose();
+    }
+
+    private long CaptureActiveEpoch()
+    {
+        lock (_lifecycleSync)
+        {
+            if (_signingOut)
+                throw new InvalidOperationException("Sign-out is in progress.");
+            return _lifecycleEpoch;
+        }
+    }
+
+    private void EnsureEpochIsCurrent(long epoch)
+    {
+        lock (_lifecycleSync)
+            if (_signingOut || epoch != _lifecycleEpoch)
+                throw new InvalidOperationException("Authentication lifecycle changed.");
     }
 
     private sealed record AuthWireResponse(
@@ -167,6 +288,19 @@ public sealed class SupabaseAuthenticationService : IAuthenticationService
         AuthWireUser? User);
     private sealed record AuthWireUser(Guid Id, string? Email,
         [property: JsonPropertyName("email_confirmed_at")] DateTimeOffset? EmailConfirmedAt);
+}
+
+internal sealed class StrictSupabaseAuthHttpClient : HttpClient
+{
+    public StrictSupabaseAuthHttpClient(HttpMessageHandler handler, SupabaseAuthOptions options)
+        : base(handler, disposeHandler: true)
+    {
+        options.Validate();
+        BaseAddress = options.BaseUri;
+    }
+
+    public static StrictSupabaseAuthHttpClient CreateProduction(SupabaseAuthOptions options) =>
+        new(new HttpClientHandler { AllowAutoRedirect = false }, options);
 }
 
 public sealed class AuthenticationException : Exception
