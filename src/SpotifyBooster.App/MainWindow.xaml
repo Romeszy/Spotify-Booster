@@ -364,7 +364,7 @@
                          Margin="0,0,8,0"
                          Fill="{DynamicResource Brush.Accent}" />
                 <TextBlock Foreground="{DynamicResource Brush.TextSecondary}"
-                           Text="{Binding SpotifyStatusText}" />
+                           Text="{Binding RoutedApplicationsStatusText}" />
               </StackPanel>
             </Grid>
 
@@ -482,8 +482,8 @@
                   </StackPanel>
                   <Slider Minimum="0"
                           Maximum="{Binding GainMaximumDb}"
-                          TickFrequency="0.1"
-                          SmallChange="0.1"
+                          TickFrequency="{Binding GainStepDb}"
+                          SmallChange="{Binding GainStepDb}"
                           LargeChange="1"
                           IsSnapToTickEnabled="True"
                           Value="{Binding MainGainDb, UpdateSourceTrigger=PropertyChanged}"
@@ -737,7 +737,7 @@
                   </Border.Style>
                   <StackPanel>
                     <TextBlock Style="{StaticResource Text.Secondary}"
-                               Text="Spotify Booster traite le signal qui traverse un câble audio virtuel. Il ne capture pas Spotify par son processus et ne modifie pas vos réglages Windows à votre place."
+                               Text="Spotify Booster traite le signal qui traverse un câble audio virtuel. La détection des applications sert de guide et ne modifie pas vos réglages Windows à votre place."
                                TextWrapping="Wrap" />
                     <Viewbox Height="210"
                              Margin="0,18,0,10"
@@ -760,7 +760,7 @@
                           <StackPanel HorizontalAlignment="Center"
                                       VerticalAlignment="Center">
                             <TextBlock FontWeight="SemiBold"
-                                       Text="Spotify" />
+                                       Text="Applications choisies" />
                             <TextBlock Style="{StaticResource Text.Caption}"
                                        Text="sortie choisie dans Windows" />
                           </StackPanel>
@@ -815,7 +815,7 @@
                     </Viewbox>
                     <Border Style="{StaticResource Banner.Warning}">
                       <TextBlock Foreground="{DynamicResource Brush.Warning}"
-                                 Text="Tout programme envoyé vers le câble sera traité. Gardez les jeux, le navigateur et les sons système sur leur sortie habituelle."
+                                 Text="Tout programme envoyé vers le câble sera traité. Gardez les applications non sélectionnées et les sons système sur leur sortie habituelle."
                                  TextWrapping="Wrap" />
                     </Border>
                   </StackPanel>
@@ -880,7 +880,7 @@
                       <Border Style="{StaticResource Panel.Flat}">
                         <StackPanel>
                           <TextBlock Style="{StaticResource Text.Caption}"
-                                     Text="CABLE INPUT · CÔTÉ SPOTIFY" />
+                                     Text="CABLE INPUT · CÔTÉ APPLICATIONS" />
                           <TextBlock Margin="0,7,0,0"
                                      Text="{Binding CableInputStatusText}"
                                      TextWrapping="Wrap" />
@@ -927,15 +927,89 @@
                   </Border.Style>
                   <StackPanel>
                     <TextBlock Style="{StaticResource Text.Section}"
-                               Text="Affectez manuellement Spotify au câble" />
+                               Text="Choisissez les applications à amplifier" />
                     <TextBlock Style="{StaticResource Text.Secondary}"
                                Margin="0,8,0,16"
-                               Text="Dans Mélangeur de volume, trouvez Spotify puis choisissez CABLE Input comme périphérique de sortie. Laissez toutes les autres applications sur leurs sorties habituelles."
+                               Text="Spotify est sélectionné par défaut. Cochez Discord ou les navigateurs uniquement si vous souhaitez aussi amplifier leur sortie complète."
+                               TextWrapping="Wrap" />
+                    <ItemsControl ItemsSource="{Binding RoutedApplicationOptions}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <WrapPanel />
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Border Width="245"
+                                  Margin="0,0,10,10"
+                                  Padding="12,10"
+                                  Background="{DynamicResource Brush.SurfaceRaised}"
+                                  BorderBrush="{DynamicResource Brush.Border}"
+                                  BorderThickness="1"
+                                  CornerRadius="6">
+                            <StackPanel>
+                              <CheckBox Style="{StaticResource Setting.Check}"
+                                        IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                        Content="{Binding DisplayName}" />
+                              <TextBlock Style="{StaticResource Text.Caption}"
+                                         Margin="27,3,0,0"
+                                         Text="{Binding ProcessHint}" />
+                              <TextBlock Margin="27,3,0,0"
+                                         Foreground="{DynamicResource Brush.TextSecondary}"
+                                         FontSize="11"
+                                         Text="{Binding StatusText}" />
+                            </StackPanel>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Grid Margin="0,2,0,10">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                      </Grid.ColumnDefinitions>
+                      <TextBox Text="{Binding CustomProcessNameInput, UpdateSourceTrigger=PropertyChanged}"
+                               ToolTip="Nom du processus, avec ou sans .exe"
+                               AutomationProperties.Name="Nom d’un processus audio personnalisé" />
+                      <Button Grid.Column="1"
+                              Style="{StaticResource Button.Secondary}"
+                              Margin="10,0,0,0"
+                              Command="{Binding AddCustomProcessCommand}"
+                              Content="Ajouter le processus" />
+                    </Grid>
+                    <ItemsControl Margin="0,0,0,10"
+                                  ItemsSource="{Binding CustomProcessNames}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Border Margin="0,0,0,5"
+                                  Padding="10,7"
+                                  Background="{DynamicResource Brush.SurfaceRaised}"
+                                  CornerRadius="5">
+                            <Grid>
+                              <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                              </Grid.ColumnDefinitions>
+                              <TextBlock VerticalAlignment="Center"
+                                         Text="{Binding StringFormat={}{0}.exe}" />
+                              <Button Grid.Column="1"
+                                      Style="{StaticResource Button.Ghost}"
+                                      Command="{Binding DataContext.RemoveCustomProcessCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                      CommandParameter="{Binding}"
+                                      Content="Retirer" />
+                            </Grid>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Style="{StaticResource Text.Secondary}"
+                               Margin="0,0,0,10"
+                               Text="{Binding ManualRoutingInstructionText}"
                                TextWrapping="Wrap" />
                     <Border Style="{StaticResource Banner.Info}"
                             Margin="0,0,0,18">
                       <TextBlock Foreground="{DynamicResource Brush.Info}"
-                                 Text="Cette étape est volontairement manuelle : l’application ouvre la page Windows officielle mais ne modifie aucun routage."
+                                 Text="La sélection guide le routage et surveille les processus. Le câble transporte un mix : toute application réellement envoyée vers CABLE Input sera amplifiée, même si elle n’est pas cochée ici. Discord est routé en sortie complète — jamais le microphone — sans isolation d’une personne ou d’un bot. Un navigateur est routé en entier, pas onglet par onglet."
                                  TextWrapping="Wrap" />
                     </Border>
                     <Button Style="{StaticResource Button.Primary}"
@@ -1096,7 +1170,7 @@
                     <Border Style="{StaticResource Banner.Warning}"
                             Margin="0,0,0,16">
                       <TextBlock Foreground="{DynamicResource Brush.Warning}"
-                                 Text="Si aucun signal n’apparaît, revenez au mélangeur Windows, vérifiez que Spotify utilise CABLE Input et qu’aucune autre application ne partage ce câble."
+                                 Text="Si aucun signal n’apparaît, revenez au mélangeur Windows et vérifiez que les applications choisies utilisent CABLE Input. Toute autre application partageant ce câble sera aussi traitée."
                                  TextWrapping="Wrap" />
                     </Border>
                     <StackPanel Orientation="Horizontal">
@@ -1437,32 +1511,80 @@
                              HorizontalAlignment="Right"
                              Text="{Binding ParameterSmoothingMs, StringFormat={}{0:0.0} ms}" />
                 </Grid>
-                <Grid Margin="27,5,0,9">
-                  <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="150" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="86" />
-                  </Grid.ColumnDefinitions>
-                  <TextBlock VerticalAlignment="Center"
-                             Text="Plafond Expert" />
-                  <Slider Grid.Column="1"
-                          Minimum="25"
-                          Maximum="1000"
-                          TickFrequency="25"
-                          SmallChange="1"
-                          LargeChange="25"
-                          Value="{Binding ExpertMaximumGainDb}" />
-                  <TextBlock Grid.Column="2"
-                             Style="{StaticResource Text.Metric}"
-                             HorizontalAlignment="Right"
-                             Text="{Binding ExpertMaximumGainDb, StringFormat=+{0:0.0} dB}" />
-                </Grid>
                 <CheckBox Style="{StaticResource Setting.Check}"
                           IsChecked="{Binding HeadphonesSafetyMode}"
                           Content="Avertissements renforcés au casque" />
                 <TextBlock Style="{StaticResource Text.Caption}"
                            Margin="27,5,0,0"
                            Text="Le mode Protégé conserve le soft clipper et le limiteur actifs." />
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Setting.Group}">
+              <StackPanel>
+                <TextBlock Style="{StaticResource Text.Section}"
+                           Text="Applications à amplifier" />
+                <TextBlock Style="{StaticResource Text.Secondary}"
+                           Margin="0,4,0,10"
+                           Text="Sélection informative pour le routage manuel. Seul le contenu réellement envoyé vers le câble virtuel est traité. Discord et les navigateurs sont sélectionnés par application entière, jamais par personne, bot ou onglet."
+                           TextWrapping="Wrap" />
+                <ItemsControl ItemsSource="{Binding RoutedApplicationOptions}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <WrapPanel />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <CheckBox Style="{StaticResource Setting.Check}"
+                                Width="205"
+                                Margin="0,0,10,8"
+                                IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                Content="{Binding DisplayName}"
+                                ToolTip="{Binding StatusText}" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Grid Margin="0,2,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                  </Grid.ColumnDefinitions>
+                  <TextBox Text="{Binding CustomProcessNameInput, UpdateSourceTrigger=PropertyChanged}"
+                           ToolTip="Exemple : tidal.exe"
+                           AutomationProperties.Name="Ajouter un processus personnalisé aux sources manuelles" />
+                  <Button Grid.Column="1"
+                          Style="{StaticResource Button.Secondary}"
+                          Margin="10,0,0,0"
+                          Command="{Binding AddCustomProcessCommand}"
+                          Content="Ajouter" />
+                </Grid>
+                <ItemsControl ItemsSource="{Binding CustomProcessNames}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Grid Margin="0,0,0,5">
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="*" />
+                          <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock VerticalAlignment="Center"
+                                   Text="{Binding StringFormat={}{0}.exe}" />
+                        <Button Grid.Column="1"
+                                Style="{StaticResource Button.Ghost}"
+                                Command="{Binding DataContext.RemoveCustomProcessCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                CommandParameter="{Binding}"
+                                Content="Retirer" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Style="{StaticResource Text.Caption}"
+                           Margin="0,6,0,0"
+                           Text="{Binding RoutedApplicationsStatusText}" />
+                <TextBlock Style="{StaticResource Text.Secondary}"
+                           Margin="0,5,0,0"
+                           Text="{Binding ManualRoutingInstructionText}"
+                           TextWrapping="Wrap" />
               </StackPanel>
             </Border>
 
@@ -1487,7 +1609,7 @@
                           Content="Attendre les périphériques audio au démarrage" />
                 <CheckBox Style="{StaticResource Setting.Check}"
                           IsChecked="{Binding WaitForSpotifyOnStartup}"
-                          Content="Attendre Spotify avant l’activation automatique" />
+                          Content="Attendre Spotify avant l’activation automatique lorsqu’il est sélectionné" />
                 <CheckBox Style="{StaticResource Setting.Check}"
                           IsChecked="{Binding NotificationsEnabled}"
                           Content="Afficher les notifications importantes" />
@@ -1666,10 +1788,10 @@
                   </StackPanel>
                   <StackPanel Grid.Column="2">
                     <TextBlock Style="{StaticResource Text.Caption}"
-                               Text="PROCESSUS SPOTIFY" />
+                               Text="APPLICATIONS SÉLECTIONNÉES" />
                     <TextBlock Style="{StaticResource Mono.Detail}"
                                Margin="0,8,0,0"
-                               Text="{Binding DiagnosticSpotifyText}" />
+                               Text="{Binding DiagnosticRoutedApplicationsText}" />
                   </StackPanel>
                 </Grid>
                 <Separator />
@@ -1779,7 +1901,7 @@
                          Text="Activer le mode Expert brut ?" />
               <TextBlock Style="{StaticResource Text.Secondary}"
                          Margin="0,10,0,0"
-                         Text="Ce mode peut demander jusqu’à +1000 dB, retire la réduction automatique et n’impose ni soft clipper ni limiteur. Une telle valeur dépasse l’amplitude float32 brute : le DSP reste fini en saturant ses magnitudes internes. Elle ne procure aucune puissance physique supplémentaire."
+                         Text="Ce mode peut demander jusqu’à +75 dB et n’impose ni compresseur, ni soft clipper, ni limiteur. Il peut provoquer saturation, distorsion et dommages auditifs. Réservé à un usage avancé."
                          TextWrapping="Wrap" />
               <Border Style="{StaticResource Banner.Warning}"
                       Margin="0,16,0,18">

@@ -47,7 +47,17 @@ public abstract class StereoBiquad
 
     public void Reset()
     {
+        ResetLeft();
+        ResetRight();
+    }
+
+    public void ResetLeft()
+    {
         _x1Left = _x2Left = _y1Left = _y2Left = 0f;
+    }
+
+    public void ResetRight()
+    {
         _x1Right = _x2Right = _y1Right = _y2Right = 0f;
     }
 }

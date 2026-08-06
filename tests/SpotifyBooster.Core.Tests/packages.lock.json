@@ -232,8 +232,14 @@
           "xunit.v3.runner.common": "[3.2.2]"
         }
       },
-      "spotifybooster.core": {
+      "spotifybooster.contracts": {
         "type": "Project"
+      },
+      "spotifybooster.core": {
+        "type": "Project",
+        "dependencies": {
+          "SpotifyBooster.Contracts": "[1.0.0, )"
+        }
       },
       "spotifybooster.infrastructure": {
         "type": "Project",

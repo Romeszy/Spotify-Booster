@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net8.0": {
+      "spotifybooster.contracts": {
+        "type": "Project"
+      },
+      "spotifybooster.core": {
+        "type": "Project",
+        "dependencies": {
+          "SpotifyBooster.Contracts": "[1.0.0, )"
+        }
+      }
+    },
+    "net8.0/win-x64": {}
+  }
+}

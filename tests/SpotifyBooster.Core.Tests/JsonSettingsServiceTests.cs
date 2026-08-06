@@ -1,7 +1,10 @@
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using SpotifyBooster.Core.Configuration;
+using SpotifyBooster.Core.Models;
 using SpotifyBooster.Infrastructure.Diagnostics;
+using SpotifyBooster.Infrastructure.Logging;
 using SpotifyBooster.Infrastructure.Persistence;
 
 namespace SpotifyBooster.Core.Tests;
@@ -21,7 +24,7 @@ public sealed class JsonSettingsServiceTests : IDisposable
         var settings = new AppSettings
         {
             FirstRunCompleted = true,
-            ExpertModeAcknowledged = true,
+            Expert75DbAcknowledged = true,
             SourceDeviceId = "capture-id",
             OutputDeviceId = "render-id",
             CloseBehavior = WindowCloseBehavior.Ask,
@@ -63,7 +66,7 @@ public sealed class JsonSettingsServiceTests : IDisposable
 
         Assert.Equal(AppSettings.CurrentSchemaVersion, loaded.SchemaVersion);
         Assert.Equal(settings.FirstRunCompleted, loaded.FirstRunCompleted);
-        Assert.Equal(settings.ExpertModeAcknowledged, loaded.ExpertModeAcknowledged);
+        Assert.Equal(settings.Expert75DbAcknowledged, loaded.Expert75DbAcknowledged);
         Assert.Equal(settings.SourceDeviceId, loaded.SourceDeviceId);
         Assert.Equal(settings.OutputDeviceId, loaded.OutputDeviceId);
         Assert.Equal(settings.CloseBehavior, loaded.CloseBehavior);
@@ -163,6 +166,371 @@ public sealed class JsonSettingsServiceTests : IDisposable
             roundTripped.Profiles.ToArray());
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Schema2MigrationQuantizesOnlyRawExpertAndCreatesExactBackup(
+        bool oldAcknowledgement)
+    {
+        Directory.CreateDirectory(temporaryDirectory);
+        string settingsPath = Path.Combine(temporaryDirectory, "settings.json");
+        string schema2 =
+            $$"""
+            {
+              "SchemaVersion": 2,
+              "FirstRunCompleted": true,
+              "ExpertModeAcknowledged": {{oldAcknowledgement.ToString().ToLowerInvariant()}},
+              "SourceDeviceId": "virtual-source-v2",
+              "OutputDeviceId": "physical-output-v2",
+              "StartWithWindows": true,
+              "StartMinimized": true,
+              "StartProcessingAutomatically": true,
+              "WaitForDevicesOnStartup": false,
+              "WaitForSpotifyOnStartup": true,
+              "CloseBehavior": 2,
+              "NotificationsEnabled": false,
+              "HeadphonesSafetyMode": false,
+              "Theme": 1,
+              "Density": 1,
+              "ReduceAnimations": true,
+              "ShowLinearPercent": false,
+              "DetailedDiagnostics": true,
+              "Hotkeys": {
+                "GlobalHotkeysEnabled": true,
+                "IncreaseGain": "Ctrl+Shift+Up",
+                "DecreaseGain": "Ctrl+Shift+Down",
+                "ToggleProcessing": "Ctrl+Shift+B",
+                "PanicReset": "Ctrl+Shift+0",
+                "ToggleBassBoost": "Ctrl+Shift+G",
+                "ToggleWindow": "Ctrl+Shift+S"
+              },
+              "Processing": {
+                "Mode": 2,
+                "MainGainDb": 10.1,
+                "ExpertMaximumGainDb": 1000,
+                "CompressorEnabled": false,
+                "SoftClipperEnabled": false,
+                "LimiterEnabled": false
+              },
+              "Profiles": [
+                {
+                  "Name": "Protected precise",
+                  "Processing": {
+                    "Mode": 0,
+                    "MainGainDb": 10.1,
+                    "ExpertMaximumGainDb": 1000,
+                    "CompressorEnabled": true,
+                    "SoftClipperEnabled": true,
+                    "LimiterEnabled": true
+                  }
+                },
+                {
+                  "Name": "Raw rounded",
+                  "Processing": {
+                    "Mode": 2,
+                    "MainGainDb": 74.6,
+                    "ExpertMaximumGainDb": 1000,
+                    "CompressorEnabled": false,
+                    "SoftClipperEnabled": false,
+                    "LimiterEnabled": false
+                  }
+                },
+                {
+                  "Name": "Raw clamped",
+                  "Processing": {
+                    "Mode": 2,
+                    "MainGainDb": 1000,
+                    "ExpertMaximumGainDb": 1000,
+                    "CompressorEnabled": false,
+                    "SoftClipperEnabled": false,
+                    "LimiterEnabled": false
+                  }
+                }
+              ]
+            }
+            """;
+        await File.WriteAllTextAsync(
+            settingsPath,
+            schema2,
+            TestContext.Current.CancellationToken);
+
+        AppSettings migrated = await CreateService().LoadAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(3, migrated.SchemaVersion);
+        Assert.False(migrated.Expert75DbAcknowledged);
+        Assert.Equal(10, migrated.Processing.MainGainDb);
+        Assert.Equal(AudioProtectionMode.RawExpert, migrated.Processing.Mode);
+        Assert.False(migrated.Processing.CompressorEnabled);
+        Assert.False(migrated.Processing.SoftClipperEnabled);
+        Assert.False(migrated.Processing.LimiterEnabled);
+
+        Assert.True(migrated.FirstRunCompleted);
+        Assert.Equal("virtual-source-v2", migrated.SourceDeviceId);
+        Assert.Equal("physical-output-v2", migrated.OutputDeviceId);
+        Assert.True(migrated.StartWithWindows);
+        Assert.True(migrated.StartMinimized);
+        Assert.True(migrated.StartProcessingAutomatically);
+        Assert.False(migrated.WaitForDevicesOnStartup);
+        Assert.True(migrated.WaitForSpotifyOnStartup);
+        Assert.Equal(WindowCloseBehavior.Exit, migrated.CloseBehavior);
+        Assert.False(migrated.NotificationsEnabled);
+        Assert.False(migrated.HeadphonesSafetyMode);
+        Assert.Equal(InterfaceTheme.System, migrated.Theme);
+        Assert.Equal(InterfaceDensity.Comfortable, migrated.Density);
+        Assert.True(migrated.ReduceAnimations);
+        Assert.False(migrated.ShowLinearPercent);
+        Assert.True(migrated.DetailedDiagnostics);
+        Assert.True(migrated.Hotkeys.GlobalHotkeysEnabled);
+        Assert.Equal("Ctrl+Shift+Up", migrated.Hotkeys.IncreaseGain);
+        Assert.Equal("Ctrl+Shift+Down", migrated.Hotkeys.DecreaseGain);
+        Assert.Equal("Ctrl+Shift+B", migrated.Hotkeys.ToggleProcessing);
+        Assert.Equal("Ctrl+Shift+0", migrated.Hotkeys.PanicReset);
+        Assert.Equal("Ctrl+Shift+G", migrated.Hotkeys.ToggleBassBoost);
+        Assert.Equal("Ctrl+Shift+S", migrated.Hotkeys.ToggleWindow);
+
+        Assert.Equal("Protected precise", migrated.Profiles[0].Name);
+        Assert.Equal(AudioProtectionMode.Protected, migrated.Profiles[0].Processing.Mode);
+        Assert.Equal(10.1, migrated.Profiles[0].Processing.MainGainDb);
+        Assert.True(migrated.Profiles[0].Processing.CompressorEnabled);
+        Assert.True(migrated.Profiles[0].Processing.SoftClipperEnabled);
+        Assert.True(migrated.Profiles[0].Processing.LimiterEnabled);
+        Assert.Equal(74.5, migrated.Profiles[1].Processing.MainGainDb);
+        Assert.Equal(75, migrated.Profiles[2].Processing.MainGainDb);
+        Assert.Equal(
+            schema2,
+            await File.ReadAllTextAsync(
+                Path.Combine(temporaryDirectory, "settings.schema2.backup.json"),
+                TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData("stale")]
+    [InlineData("{")]
+    public async Task Schema2MigrationRefusesMismatchedExistingBackup(
+        string existingBackup)
+    {
+        Directory.CreateDirectory(temporaryDirectory);
+        string settingsPath = Path.Combine(temporaryDirectory, "settings.json");
+        const string schema2 =
+            """{"SchemaVersion":2,"Processing":{"Mode":2,"MainGainDb":25,"ExpertMaximumGainDb":1000},"Profiles":[]}""";
+        await File.WriteAllTextAsync(
+            settingsPath,
+            schema2,
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(temporaryDirectory, "settings.schema2.backup.json"),
+            existingBackup,
+            TestContext.Current.CancellationToken);
+
+        AppSettings loaded = await CreateService().LoadAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.False(loaded.FirstRunCompleted);
+        Assert.Equal(
+            schema2,
+            await File.ReadAllTextAsync(
+                settingsPath,
+                TestContext.Current.CancellationToken));
+        Assert.NotEmpty(errorSink.GetRecent());
+    }
+
+    [Fact]
+    public async Task Schema2MigrationAcceptsExactExistingBackupForRecovery()
+    {
+        Directory.CreateDirectory(temporaryDirectory);
+        string settingsPath = Path.Combine(temporaryDirectory, "settings.json");
+        const string schema2 =
+            """{"SchemaVersion":2,"FirstRunCompleted":true,"ExpertModeAcknowledged":false,"Processing":{"Mode":2,"MainGainDb":25,"ExpertMaximumGainDb":1000},"Profiles":[]}""";
+        string backupPath = Path.Combine(
+            temporaryDirectory,
+            "settings.schema2.backup.json");
+        await File.WriteAllTextAsync(
+            settingsPath,
+            schema2,
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            backupPath,
+            schema2,
+            TestContext.Current.CancellationToken);
+
+        AppSettings loaded = await CreateService().LoadAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.True(loaded.FirstRunCompleted);
+        Assert.Equal(25, loaded.Processing.MainGainDb);
+        Assert.False(loaded.Expert75DbAcknowledged);
+        Assert.Equal(
+            schema2,
+            await File.ReadAllTextAsync(
+                backupPath,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Schema2MigrationIsIdempotentAfterV3Rewrite()
+    {
+        Directory.CreateDirectory(temporaryDirectory);
+        string settingsPath = Path.Combine(temporaryDirectory, "settings.json");
+        const string schema2 =
+            """{"SchemaVersion":2,"FirstRunCompleted":true,"ExpertModeAcknowledged":true,"Processing":{"Mode":2,"MainGainDb":74.6,"ExpertMaximumGainDb":1000,"CompressorEnabled":false,"SoftClipperEnabled":false,"LimiterEnabled":false},"Profiles":[]}""";
+        await File.WriteAllTextAsync(
+            settingsPath,
+            schema2,
+            TestContext.Current.CancellationToken);
+        var service = CreateService();
+
+        AppSettings first = await service.LoadAsync(TestContext.Current.CancellationToken);
+        byte[] firstV3 = await File.ReadAllBytesAsync(
+            settingsPath,
+            TestContext.Current.CancellationToken);
+        byte[] firstBackup = await File.ReadAllBytesAsync(
+            Path.Combine(temporaryDirectory, "settings.schema2.backup.json"),
+            TestContext.Current.CancellationToken);
+
+        AppSettings second = await service.LoadAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(first with { Profiles = second.Profiles }, second);
+        Assert.Equal(first.Profiles.ToArray(), second.Profiles.ToArray());
+        Assert.Equal(74.5, second.Processing.MainGainDb);
+        Assert.False(second.Expert75DbAcknowledged);
+        Assert.Equal(
+            firstV3,
+            await File.ReadAllBytesAsync(
+                settingsPath,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            firstBackup,
+            await File.ReadAllBytesAsync(
+                Path.Combine(temporaryDirectory, "settings.schema2.backup.json"),
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Schema3RejectsObsoleteExpertModeAcknowledgedWithoutRewritingSource()
+    {
+        Directory.CreateDirectory(temporaryDirectory);
+        string settingsPath = Path.Combine(temporaryDirectory, "settings.json");
+        const string invalidV3 =
+            """{"SchemaVersion":3,"FirstRunCompleted":true,"Expert75DbAcknowledged":true,"ExpertModeAcknowledged":true,"Processing":{"Mode":1,"MainGainDb":10.1,"CompressorEnabled":false,"SoftClipperEnabled":false,"LimiterEnabled":false},"Profiles":[]}""";
+        await File.WriteAllTextAsync(
+            settingsPath,
+            invalidV3,
+            TestContext.Current.CancellationToken);
+
+        AppSettings loaded = await CreateService().LoadAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.False(loaded.FirstRunCompleted);
+        Assert.False(loaded.Expert75DbAcknowledged);
+        Assert.Equal(
+            invalidV3,
+            await File.ReadAllTextAsync(
+                settingsPath,
+                TestContext.Current.CancellationToken));
+        Assert.NotEmpty(errorSink.GetRecent());
+    }
+
+    [Fact]
+    public async Task BackupWriteFailureLeavesSchema2SourceUntouched()
+    {
+        Directory.CreateDirectory(temporaryDirectory);
+        string settingsPath = Path.Combine(temporaryDirectory, "settings.json");
+        const string schema2 =
+            """{"SchemaVersion":2,"Processing":{"Mode":2,"MainGainDb":25,"ExpertMaximumGainDb":1000},"Profiles":[]}""";
+        await File.WriteAllTextAsync(
+            settingsPath,
+            schema2,
+            TestContext.Current.CancellationToken);
+        string backupPath = Path.Combine(
+            temporaryDirectory,
+            "settings.schema2.backup.json");
+        Directory.CreateDirectory(backupPath + ".tmp");
+
+        AppSettings loaded = await CreateService().LoadAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.False(loaded.FirstRunCompleted);
+        Assert.Equal(
+            schema2,
+            await File.ReadAllTextAsync(
+                settingsPath,
+                TestContext.Current.CancellationToken));
+        Assert.False(File.Exists(backupPath));
+        Assert.NotEmpty(errorSink.GetRecent());
+    }
+
+    [Fact]
+    public async Task SaveWriteFailureDoesNotReplaceExistingSettings()
+    {
+        var service = CreateService();
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        AppSettings originalSettings = new()
+        {
+            FirstRunCompleted = true,
+            Processing = DirectProcessing(0),
+            Profiles = [],
+        };
+        await service.SaveAsync(originalSettings, cancellationToken);
+        string original = await File.ReadAllTextAsync(
+            service.SettingsFilePath,
+            cancellationToken);
+        Directory.CreateDirectory(service.SettingsFilePath + ".tmp");
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => service.SaveAsync(
+                originalSettings with
+                {
+                    SourceDeviceId = "must-not-be-written",
+                },
+                cancellationToken));
+
+        Assert.Equal(
+            original,
+            await File.ReadAllTextAsync(
+                service.SettingsFilePath,
+                cancellationToken));
+    }
+
+    [Fact]
+    public async Task StrictTemporaryReloadFailurePreservesExistingSettingsByteForByte()
+    {
+        var service = CreateService();
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        AppSettings originalSettings = new()
+        {
+            FirstRunCompleted = true,
+            SourceDeviceId = "original-device",
+            Processing = DirectProcessing(0),
+            Profiles = [],
+        };
+        await service.SaveAsync(originalSettings, cancellationToken);
+        byte[] originalBytes = await File.ReadAllBytesAsync(
+            service.SettingsFilePath,
+            cancellationToken);
+        var faultedService = new JsonSettingsService(
+            NullLogger<JsonSettingsService>.Instance,
+            errorSink,
+            temporaryDirectory,
+            static (temporaryPath, token) =>
+                File.WriteAllTextAsync(temporaryPath, "{", token));
+
+        await Assert.ThrowsAnyAsync<JsonException>(
+            () => faultedService.SaveAsync(
+                originalSettings with
+                {
+                    SourceDeviceId = "must-not-replace-original",
+                },
+                cancellationToken));
+
+        Assert.Equal(
+            originalBytes,
+            await File.ReadAllBytesAsync(
+                service.SettingsFilePath,
+                cancellationToken));
+        Assert.False(File.Exists(service.SettingsFilePath + ".tmp"));
+    }
+
     [Fact]
     public async Task InvalidJson_ReturnsSafeV2DefaultsAndReportsError()
     {
@@ -182,6 +550,68 @@ public sealed class JsonSettingsServiceTests : IDisposable
         Assert.True(loaded.Processing.SoftClipperEnabled);
         Assert.True(loaded.Processing.LimiterEnabled);
         Assert.NotEmpty(errorSink.GetRecent());
+    }
+
+    [Fact]
+    public async Task InvalidProfileNameIsAbsentFromFileLogAndErrorSink()
+    {
+        const string sensitiveProfileName = "PERSONAL-NAME-DO-NOT-LOG";
+        Directory.CreateDirectory(temporaryDirectory);
+        string settingsPath = Path.Combine(temporaryDirectory, "settings.json");
+        AppSettings invalidSettings = new()
+        {
+            FirstRunCompleted = true,
+            Processing = DirectProcessing(0),
+            Profiles =
+            [
+                new AudioProfileSettings
+                {
+                    Name = sensitiveProfileName,
+                    Processing = DirectProcessing(0),
+                },
+                new AudioProfileSettings
+                {
+                    Name = sensitiveProfileName,
+                    Processing = RawProcessing(75.5),
+                },
+            ],
+        };
+        await File.WriteAllTextAsync(
+            settingsPath,
+            JsonSerializer.Serialize(invalidSettings),
+            TestContext.Current.CancellationToken);
+
+        string logDirectory = Path.Combine(temporaryDirectory, "logs");
+        using var provider = new AsyncFileLoggerProvider(
+            logDirectory,
+            maximumLogFileBytes: 1_048_576);
+        using (ILoggerFactory loggerFactory = LoggerFactory.Create(
+            builder => builder.AddProvider(provider)))
+        {
+            var service = new JsonSettingsService(
+                loggerFactory.CreateLogger<JsonSettingsService>(),
+                errorSink,
+                temporaryDirectory);
+
+            AppSettings loaded = await service.LoadAsync(
+                TestContext.Current.CancellationToken);
+
+            Assert.False(loaded.FirstRunCompleted);
+        }
+        provider.Dispose();
+
+        string logText = await File.ReadAllTextAsync(
+            Path.Combine(logDirectory, "spotify-booster.log"),
+            TestContext.Current.CancellationToken);
+        string errorText = string.Join(
+            " ",
+            errorSink.GetRecent().Select(
+                error => $"{error.Component} {error.Message}"));
+
+        Assert.Contains("Catégorie : validation.", logText, StringComparison.Ordinal);
+        Assert.Contains("paramètres sûrs par défaut", errorText, StringComparison.Ordinal);
+        Assert.DoesNotContain(sensitiveProfileName, logText, StringComparison.Ordinal);
+        Assert.DoesNotContain(sensitiveProfileName, errorText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -274,8 +704,7 @@ public sealed class JsonSettingsServiceTests : IDisposable
             FirstRunCompleted = true,
             Processing = RawProcessing(25) with
             {
-                MainGainDb = 30,
-                ExpertMaximumGainDb = 25,
+                MainGainDb = 75.5,
             },
             Profiles = [],
         };
@@ -286,6 +715,78 @@ public sealed class JsonSettingsServiceTests : IDisposable
             service.SettingsFilePath,
             cancellationToken);
         Assert.Equal(original, afterFailure);
+    }
+
+    [Fact]
+    public async Task SaveAndLoadRoundTripsManualRoutingSelection()
+    {
+        var service = CreateService();
+        var settings = new AppSettings
+        {
+            FirstRunCompleted = true,
+            ManualRouting = new ManualRoutingSettings
+            {
+                SelectedApplications =
+                [
+                    AudioApplicationKind.Discord,
+                    AudioApplicationKind.Edge,
+                    AudioApplicationKind.OperaGx,
+                ],
+                CustomProcessNames = ["tidal"],
+            },
+            Processing = DirectProcessing(0),
+            Profiles = [],
+        };
+
+        await service.SaveAsync(
+            settings,
+            TestContext.Current.CancellationToken);
+        AppSettings loaded = await service.LoadAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.True(loaded.FirstRunCompleted);
+        Assert.Equal(settings.Processing, loaded.Processing);
+        Assert.Equal(settings.Hotkeys, loaded.Hotkeys);
+        Assert.Equal(
+            settings.ManualRouting.SelectedApplications,
+            loaded.ManualRouting.SelectedApplications);
+        Assert.Equal(
+            settings.ManualRouting.CustomProcessNames,
+            loaded.ManualRouting.CustomProcessNames);
+    }
+
+    [Fact]
+    public async Task ExistingV3WithoutManualRoutingDefaultsToSpotifyOnly()
+    {
+        Directory.CreateDirectory(temporaryDirectory);
+        string json =
+            """
+            {
+              "SchemaVersion": 3,
+              "FirstRunCompleted": true,
+              "Processing": {
+                "Mode": 1,
+                "MainGainDb": 0,
+                "CompressorEnabled": false,
+                "SoftClipperEnabled": false,
+                "LimiterEnabled": false
+              },
+              "Profiles": []
+            }
+            """;
+        await File.WriteAllTextAsync(
+            Path.Combine(temporaryDirectory, "settings.json"),
+            json,
+            TestContext.Current.CancellationToken);
+
+        AppSettings loaded = await CreateService().LoadAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.True(loaded.FirstRunCompleted);
+        Assert.Equal(
+            [AudioApplicationKind.Spotify],
+            loaded.ManualRouting.SelectedApplications);
+        Assert.Empty(loaded.ManualRouting.CustomProcessNames);
     }
 
     public void Dispose()
@@ -318,6 +819,5 @@ public sealed class JsonSettingsServiceTests : IDisposable
         DirectProcessing(gainDecibels) with
         {
             Mode = AudioProtectionMode.RawExpert,
-            ExpertMaximumGainDb = 25,
         };
 }

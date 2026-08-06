@@ -1,169 +1,175 @@
 # État du projet
 
-Mise à jour : 28 juillet 2026.
+Date de mise à jour : 6 août 2026.
 
-## Références
+## Synthèse
 
-| Élément | Valeur |
-|---|---|
-| Racine de travail | `F:\Spotify Booster` |
-| Branche V2 | `codex/spotify-booster-desktop-v2` |
-| Baseline MVP | `ab2923cf44756be7b8446d67e6cbe15123cee3d2` |
-| Version applicative déclarée | `0.2.0` |
-| SDK fixé | .NET SDK `8.0.423` |
-| Cible bureau | `net8.0-windows10.0.19041.0` |
+Spotify Booster possède un desktop audio WPF testable et une fondation
+commerciale Phase A intégrée dans la solution. Les implémentations API, Auth,
+base/RLS et DSP/V3 existent. Le schéma PostgreSQL Phase A est déployé sur le
+projet Supabase hébergé ; l’API applicative, SMTP, le domaine, les opérations
+de production et le paiement réel ne sont pas déployés.
 
-La branche V2 est fondée sur le commit MVP `ab2923c`. La livraison est intégrée dans un commit cohérent, puis le package est régénéré depuis ce worktree propre. Le rapport sous `artifacts\reports` constitue la source de vérité pour le commit, la version informative et les compteurs de tests ; le manifeste sous `artifacts\checksums` porte les hashes.
+La version desktop `0.2.1` ajoute le guidage de routage manuel
+multi-application : Spotify reste sélectionné par défaut, avec Discord, Chrome,
+Edge, Opera GX, Firefox, Brave et des processus personnalisés disponibles.
+Cette sélection ne modifie pas Windows et ne filtre pas le contenu du câble.
 
-## Baseline vérifiée
+## Opérationnel et vérifié par voie
 
-Le commit `ab2923c` sur `codex/spotify-booster-mvp` avait :
+| Voie | Fonctionnalité | Preuve la plus récente |
+| --- | --- | --- |
+| Desktop/Audio | énumération, route, moteur, métriques, récupération | Audio `27` tests |
+| DSP | pipeline modulaire, stabilité numérique, `+75 dB` | DSP `90` tests |
+| Core/Infrastructure | validation V3, migration V1/V2, persistance, sélection et détection multi-application | Core `139` tests |
+| API | JWT/JWKS borné à 32 clés, `/health/*`, `/v1/me`, rate limiting pré/post-auth, métriques | API `105/105` tests |
+| Auth | contrats, appels Supabase, refresh/logout, redaction | Auth `54/54` tests |
+| Tooling Node | bootstrap/assets locaux, gate E2E et atomicité | `23/24` tests, 1 skip de plateforme, lint réussi, audit npm production propre |
+| PostgreSQL/RLS | schéma, grants, policies, triggers, RPC health/me | preuve historique du 29 juillet 2026 ; non rejouée pour `0.2.1` |
 
-- restauration réussie ;
-- build Release propre ;
-- `71/71` tests automatisés réussis ;
-- smoke test de la fenêtre WPF réussi ;
-- aucun câble virtuel disponible sur la machine de référence.
+Le 6 août 2026, la restauration verrouillée et le build Release des 13 projets
+ont réussi avec `0` avertissement et `0` erreur. Le test .NET complet a réussi
+`415/415` (Audio `27`, Core `139`, DSP `90`, Auth `54`, API `105`). Les tests
+Node réussissent `23/24` avec un skip TLS de plateforme, le lint réussit et les
+audits NuGet/npm production sont propres. Les gates Supabase n’ont pas été
+rejoués pour `0.2.1`.
 
-Cette preuve concerne le MVP baseline, pas automatiquement l’ensemble des modifications V2 non commitées.
+Pour la preuve API/backend antérieure du 29 juillet 2026, la CLI Supabase exacte `2.109.1`,
+Node contrôlé avant `npm ci --offline`, le démarrage, deux resets depuis zéro,
+le lint PostgreSQL, pgTAP `111/111`, l’atomicité du runner, l’E2E Auth/API réel
+à deux utilisateurs, la panne/récupération readiness et la lecture JWKS avec
+`curl --cacert` ont réussi sous WSL avec CA explicite. Le gate renforcé fixe
+l’archive officielle du SDK Linux `8.0.423` et son SHA-512 avant extraction,
+prouve l’exécution de la migration fautive par un handler qui vérifie le
+SQLSTATE et le message exacts de l’exception `P0001`, incrémente une séquence
+PostgreSQL non transactionnelle, puis relance l’exception. Il vérifie ensuite
+le rollback de l’objet et de la version de migration, ainsi que le nettoyage
+des trois artefacts. Il rejette les sorties start/reset et scanne tous les
+autres logs temporaires. Stack, API,
+SDK Linux temporaire, utilisateurs et logs temporaires ont ensuite été
+supprimés.
 
-## Fonctionnalités V2 implémentées
+Cette preuve historique comprenait aussi le déploiement Supabase distant Phase
+A : les migrations
+`20260728234203` et `20260728235312` sont alignées, avec la baseline immuable
+au SHA-256
+`11C3259D389CC8DEB77B9819407CBF2EF1B1788C148B548B302138D23A2C47FD`.
+Le dry-run n’a annoncé que la nouvelle migration, puis le push a réussi. Le
+lint distant est propre, pgTAP réussit `128/128` sur le projet lié et
+`128/128` depuis la racine locale, tandis que le gate backend WSL reste vert à
+`111/111` avec son E2E. Le contrôle privilégié utilise
+`SET LOCAL ROLE postgres` avec le rôle CLI éphémère dans une transaction
+annulée par rollback. L’avertissement de cache `pg-delta` est non bloquant.
 
-| Domaine | État du code |
-|---|---|
-| Gain canonique en dB | Implémenté |
-| Plage standard `0 à +14 dB` | Implémentée |
-| Expert brut avec plafond configurable `+25 à +1000 dB` | Implémenté, `+1000 dB` par défaut |
-| Borne architecturale `+1000 dB` | Validée par le modèle |
-| Lissage du gain principal en dB, calcul double et borne interne `±64` | Implémentés |
-| Modes Protégé, Direct, Expert brut | Implémentés et explicites |
-| Absence de réduction persistante automatique | Implémentée |
-| DC blocker modulaire | Implémenté |
-| Bass Boost `35–200 Hz`, jusqu’à `+18 dB` | Implémenté |
-| Égaliseur trois bandes | Implémenté |
-| Compresseur optionnel | Implémenté |
-| Soft clipper optionnel | Implémenté |
-| Limiteur sample-peak optionnel | Implémenté |
-| Gain de sortie | Implémenté |
-| Gain de sortie Protégé borné à `0 dB` max | Implémenté et testé |
-| Avertissement gain de sortie positif Direct/Expert | Implémenté |
-| Migration JSON V1 → V2 avec backup | Implémentée |
-| Profils persistés alimentant l’UI Bass Boost | Implémentés |
-| Assistant de routage en sept étapes | Implémenté |
-| Zone de notification et menu rapide | Implémentés |
-| Comportement de fermeture configurable | Implémenté |
-| Démarrage utilisateur via HKCU Run | Implémenté |
-| Démarrage masqué `--minimized` | Implémenté |
-| Raccourcis globaux | Implémentés |
-| Diagnostic V2 et export texte | Implémentés |
-| Icône locale originale et variantes | Intégrées |
-| VB-CABLE | Externe, manuel, non distribué |
-| Réseau/télémétrie | Aucun dans le code applicatif |
-| Pilote/APO/service | Aucun |
-| Scripts build/test/release | Implémentés |
-| Lecture DSP sans allocation après update/panique | Implémentée et testée |
-| Publication des métriques hors callback | Implémentée |
-| Portable self-contained single-file | Généré |
-| Installateur NSIS 3.12 utilisateur | Généré |
+Les audits NuGet et npm de cette preuve ne détectaient aucune vulnérabilité.
+L’audit NuGet des packages dépréciés remontait toutefois des transitifs `5.0.0` hérités de
+`xunit.v3` `3.2.2` dans les projets de tests
+(`Microsoft.NETCore.Platforms`, `System.Security.AccessControl` et, selon le
+projet, `System.Diagnostics.DiagnosticSource`). Cet avertissement amont reste
+à surveiller ; aucune substitution transitive non validée n’est revendiquée.
+L’audit `--outdated` a aussi été analysé : les upgrades directs proposés vers
+ASP.NET Core `10.0.10` nécessitent la migration .NET 10 explicitement différée,
+et les mises à jour transitives ne sont pas forcées. Le lock npm audité a le
+SHA-256
+`3ba35759b1d1b8adfe828a00d751f5a4ced1c562c86a3159f470df27b5739e46`.
 
-## Validation automatisée V2
+## Implémenté Phase A
 
-Vérification locale fraîche du 28 juillet 2026 :
+- `SpotifyBooster.Contracts`, `SpotifyBooster.Auth` et `SpotifyBooster.Api` ;
+- JWT `RS256`/`ES256`, cache JWKS 10 minutes borné à 32 clés, gates 60 secondes
+  et fail-closed, y compris exception transport inattendue, timeout tardif,
+  wraparound fatal et sauts d’horloge murale ;
+- plafond d’entrée `/v1` distinct de `120` requêtes/minute/adresse avant
+  validation JWT, puis quotas `30`/subject et `10`/adresse après validation ;
+- endpoints `GET /health/live`, `GET /health/ready`, `GET /v1/me`, avec
+  bootstrap JWKS à froid et groupe `/v1` protégé par défaut ;
+- Data API avec bearer par requête et vérification du subject ;
+- migrations `profiles`, `entitlements`, triggers, RLS, RPC health et RPC
+  `/v1/me` JWT-scoped sans argument d’identité ;
+- Supabase CLI locale exacte `2.109.1`, TLS loopback et clés ES256 locales ;
+- schéma de réglages V3 ;
+- routage manuel guidé pour Spotify, Discord, Chrome, Edge, Opera GX, Firefox,
+  Brave et jusqu’à seize noms de processus personnalisés ;
+- Spotify sélectionné par défaut, détection informative des processus choisis
+  et persistance dans `ManualRouting` ;
+- RawExpert fixe `0..+75 dB` par pas de `0,5 dB` ;
+- suppression du clamp DSP caché `±64` et assainissement NaN/Inf.
+- abstractions Auth/entitlement/update placées dans `Core/Abstractions`, avec
+  modèles wire indépendants dans Contracts ;
+- entitlement Pro toujours borné par une échéance effective ; `canceled` est
+  maintenu jusqu’à cette échéance exacte, puis désactivé, et le drapeau de
+  grâce seul n’accorde aucun droit ;
+- preuve V3 du rejet de `ExpertModeAcknowledged` obsolète et du rechargement
+  idempotent après migration ;
+- récupération finie ciblée des états compresseur et limiteur après NaN/Inf.
+- sessions de récupération Auth distinguées, options réseau bornées et logout
+  concurrent sérialisé ; la révocation distante est tentée même si
+  l’effacement local échoue, puis l’échec persistant est rapporté explicitement
+  au lieu d’être annoncé comme réussi ;
+- artifact WPF portable republié puis contrôlé par allowlist et scan de secrets.
+- contrat Auth `2.109.1` prouvé séparément pour récupération du parent direct
+  et révocation de famille au rejeu du grand-parent ;
+- `/v1/me` documenté comme projection d’entitlement Phase A, sans revendiquer
+  l’évaluation Stripe, validité/grâce ou feature gating différée.
 
-- restauration verrouillée : réussie ;
-- build Release : réussi ;
-- avertissements : 0 ;
-- erreurs : 0 ;
-- DSP : `71/71` ;
-- Audio : `27/27` ;
-- Core/Infrastructure : `64/64` ;
-- total : `162/162`.
+## Fonctionne seulement localement ou comme contrat
 
-Les commandes exécutées sont :
+- le schéma Supabase Phase A est hébergé, mais l’API applicative reste locale ;
+- l’adaptateur Auth n’est pas branché aux vues WPF ;
+- les sessions ne sont pas persistées ;
+- les contrats entitlement/update n’ont pas de service desktop concret ;
+- le rôle writer d’entitlements est `NOLOGIN`, sans endpoint ;
+- la RPC health teste seulement un chemin Data API constant ;
+- l’E2E backend prouve le vrai processus API local, Auth, JWKS, Data API et
+  RLS ; ce n’est pas une preuve de déploiement de l’API applicative ni
+  d’exploitation en production.
 
-```powershell
-& ".\.dotnet\dotnet.exe" restore .\SpotifyBooster.sln --locked-mode
-& ".\.dotnet\dotnet.exe" build .\SpotifyBooster.sln --configuration Release --no-restore
-& ".\.dotnet\dotnet.exe" test .\SpotifyBooster.sln --configuration Release --no-build
-```
+## Non implémenté
 
-Le rapport de release doit réexécuter la suite sur le commit final et consigner tout écart par rapport à ces 162 tests.
+- Stripe, Checkout, Portal, webhooks et abonnement Pro réel ;
+- feature gating Free/Pro ;
+- vues WPF Welcome/SignIn/Account ;
+- stockage DPAPI et licence hors ligne signée ;
+- table devices et révocation de device ;
+- updater, mandatory update et métadonnées signées ;
+- Authenticode, .NET 10 et release commerciale ;
+- API applicative hébergée, SMTP, domaine, sauvegardes et opérations de
+  production ;
+- télémétrie ou trafic réseau du moteur audio.
 
-## Validation matérielle
+## Validation manuelle encore requise
 
-La route audio a été ouverte puis arrêtée sans erreur, mais aucun signal n’a été injecté : le vu-mètre est resté à `−∞`. Aucun test audio réel ne peut donc être revendiqué.
+- transit réel de bout en bout avec Spotify puis une seconde application ;
+- preuve qu’une application cochée mais non routée n’entre pas dans Booster ;
+- preuve qu’une application non cochée mais réellement routée est traitée ;
+- Discord : sortie complète seulement, microphone inchangé, absence
+  d’isolation de personne/bot ;
+- navigateur : mix de plusieurs onglets, absence d’isolation par onglet ;
+- test casque à faible niveau et panique ;
+- endurance audio et débranchement/reconnexion ;
+- machine propre, installation/désinstallation ;
+- DPI 125/150 %, clavier et Narrateur ;
 
-Restent non réalisés :
+## Risques
 
-- transit Spotify → VB-CABLE → DSP → casque/enceintes ;
-- qualité sonore et comparaison des trois modes ;
-- session longue 30–60 minutes ;
-- dérive réelle entre horloges ;
-- récupération après débranchement, veille/reprise et changement de session ;
-- sorties filaire, USB, HDMI et Bluetooth ;
-- comportement auditif du soft clipper/limiteur ;
-- niveau acoustique.
+- `+75 dB` est dangereux et non sûr pour l’audition ;
+- tout programme routé vers le câble est traité ;
+- la sélection d’applications ne change aucun réglage Windows ;
+- Discord et les navigateurs sont traités comme des sorties complètes, sans
+  isolation de personne, bot ou onglet ;
+- Bluetooth et pilotes tiers ajoutent latence et conversions ;
+- la disponibilité JWKS/Data API conditionne l’API ;
+- le certificat et les clés locales deviennent sensibles s’ils quittent
+  `.local` ;
+- le gate Linux n’installe aucun certificat Windows ; le résidu précédemment
+  présent dans `CurrentUser\Root` a été supprimé et la preuve TLS stricte
+  utilise la CA explicite sous WSL ;
+- .NET 8 sort du support le 10 novembre 2026.
 
-Le transit audio de bout en bout reste non validé.
+## Prochaine étape
 
-## Packaging et release
-
-Package de livraison du 28 juillet 2026 :
-
-- `artifacts\portable\SpotifyBooster-Portable-x64.exe` généré ;
-- `artifacts\installer\SpotifyBooster-Setup-x64.exe` généré avec NSIS 3.12 ;
-- `artifacts\checksums\SHA256SUMS.txt` généré en UTF-8 sans BOM ;
-- `artifacts\reports\release-report.txt` généré avec branche, commit et état du worktree ;
-- trois rapports TRX conservés sous `artifacts\reports\tests` ;
-- rapport `Status: Complete` et provenance `Worktree: clean` ;
-- `LICENSE.txt`, `THIRD_PARTY_NOTICES.md` et `licenses\` inclus ;
-- `13/13` entrées du manifeste SHA-256 recalculées et vérifiées ;
-- métadonnées de version des deux exécutables vérifiées ;
-- installation puis désinstallation silencieuses testées sur cette machine, avec codes `0/0` et aucun résidu ;
-- binaires non signés.
-
-Ces fichiers forment un candidat de livraison reproductible, mais les gates suivants restent ouverts :
-
-- test sur machine propre ;
-- signature Authenticode ;
-- SBOM ;
-- smoke test portable isolé du package final ;
-- QA manuelle signée.
-
-Ne pas ajouter de valeurs fictives. Utiliser [PACKAGING.md](PACKAGING.md) et [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
-
-## Limites non revendiquées
-
-- aucune capture par PID ;
-- aucune exclusivité par application sans routage Windows manuel ;
-- aucune installation ou redistribution de VB-CABLE ;
-- aucun changement silencieux de route Windows ;
-- aucun limiteur true-peak/look-ahead ;
-- aucune mesure SPL ou garantie auditive ;
-- aucune mise à jour automatique ;
-- aucune télémétrie ;
-- aucun binaire signé à ce stade ;
-- aucun test machine propre ;
-- aucune validation installation/désinstallation sur machine propre ;
-- aucune validation DPI 125 % ou 150 %.
-
-## Risques ouverts
-
-- calibration matérielle de la correction de dérive ;
-- formats/pilotes inhabituels ;
-- latence Bluetooth/HDMI ;
-- sortie positive après le limiteur pouvant recréer du clipping ;
-- heuristique de détection des périphériques virtuels ;
-- compatibilité et durée de vie du moteur `WasapiOut` ;
-- fin de support .NET 8 le 10 novembre 2026 ;
-- audit de dépendances et validation de distribution à refaire sur le paquet final.
-
-## Stop condition V2
-
-La V2 ne doit être déclarée prête à distribuer que lorsque :
-
-1. build et suite complète sont revalidés sur le commit final ;
-2. transit audio réel et tests de récupération sont consignés ;
-3. le paquet final passe sur une machine propre ;
-4. SBOM, signature et hashes finaux sont présents ;
-5. la checklist de release ne contient plus de gate bloquant.
+Préparer une préversion technique limitée : exécuter la checklist manuelle
+Phase A, déployer l’API applicative dans un environnement de préversion et
+valider son intégration avec le schéma Supabase hébergé. La Phase B commencera
+par une ADR Stripe et le writer privilégié ; elle ne doit pas être amorcée
+pendant cette préversion.

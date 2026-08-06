@@ -5,4 +5,8 @@
     <Description>Domain contracts, validated settings and application state for Spotify Booster.</Description>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\SpotifyBooster.Contracts\SpotifyBooster.Contracts.csproj" />
+  </ItemGroup>
+
 </Project>

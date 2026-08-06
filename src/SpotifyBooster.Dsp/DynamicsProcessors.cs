@@ -49,6 +49,7 @@ public sealed class StereoCompressor
             return;
         }
 
+        SanitizeInputsAndResetState(ref left, ref right);
         float detector = Math.Max(Math.Abs(left), Math.Abs(right));
         float coefficient = detector > _envelope ? _attackCoefficient : _releaseCoefficient;
         _envelope = detector + (coefficient * (_envelope - detector));
@@ -61,6 +62,15 @@ public sealed class StereoCompressor
         float gain = GainConversion.DecibelsToFactor(-reduction) * _makeupGain;
         left *= gain;
         right *= gain;
+        if (!float.IsFinite(_envelope)
+            || !float.IsFinite(GainReductionDecibels)
+            || !float.IsFinite(left)
+            || !float.IsFinite(right))
+        {
+            Reset();
+            left = Sanitize(left);
+            right = Sanitize(right);
+        }
     }
 
     public void Reset()
@@ -71,6 +81,23 @@ public sealed class StereoCompressor
 
     private static float TimeCoefficient(int sampleRate, float milliseconds) =>
         MathF.Exp(-1f / (sampleRate * milliseconds * 0.001f));
+
+    private void SanitizeInputsAndResetState(ref float left, ref float right)
+    {
+        if (float.IsFinite(left) && float.IsFinite(right))
+        {
+            return;
+        }
+
+        Reset();
+        left = Sanitize(left);
+        right = Sanitize(right);
+    }
+
+    private static float Sanitize(float sample) =>
+        float.IsNaN(sample)
+            ? 0f
+            : Math.Clamp(sample, -float.MaxValue, float.MaxValue);
 }
 
 public sealed class StereoLimiter
@@ -111,6 +138,7 @@ public sealed class StereoLimiter
             return false;
         }
 
+        SanitizeInputsAndResetState(ref left, ref right);
         float peak = Math.Max(Math.Abs(left), Math.Abs(right));
         float requiredGain = peak > _ceiling ? _ceiling / peak : 1f;
         _gain = requiredGain < _gain
@@ -120,6 +148,16 @@ public sealed class StereoLimiter
 
         left = Math.Clamp(left * _gain, -_ceiling, _ceiling);
         right = Math.Clamp(right * _gain, -_ceiling, _ceiling);
+        if (!float.IsFinite(_gain)
+            || !float.IsFinite(GainReductionDecibels)
+            || !float.IsFinite(left)
+            || !float.IsFinite(right))
+        {
+            Reset();
+            left = Sanitize(left);
+            right = Sanitize(right);
+        }
+
         return requiredGain < 1f;
     }
 
@@ -128,6 +166,23 @@ public sealed class StereoLimiter
         _gain = 1f;
         GainReductionDecibels = 0f;
     }
+
+    private void SanitizeInputsAndResetState(ref float left, ref float right)
+    {
+        if (float.IsFinite(left) && float.IsFinite(right))
+        {
+            return;
+        }
+
+        Reset();
+        left = Sanitize(left);
+        right = Sanitize(right);
+    }
+
+    private static float Sanitize(float sample) =>
+        float.IsNaN(sample)
+            ? 0f
+            : Math.Clamp(sample, -float.MaxValue, float.MaxValue);
 }
 
 public sealed class StereoSoftClipper

@@ -3,9 +3,10 @@ RequestExecutionLevel user
 SetCompressor /SOLID lzma
 
 !include "MUI2.nsh"
+!include "Sections.nsh"
 
 !ifndef VERSION
-  !define VERSION "0.2.0"
+  !define VERSION "0.2.1"
 !endif
 !ifndef SOURCE_DIR
   !error "SOURCE_DIR must point to the portable publish directory."
@@ -98,6 +99,18 @@ SectionEnd
 Section /o "Start automatically when I sign in" SEC_AUTOSTART
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Spotify Booster" '"$INSTDIR\${APP_EXE}" --minimized'
 SectionEnd
+
+Function .onInit
+  ; Preserve the user's existing autostart choice during an in-place update.
+  ; The user can still clear the component checkbox to disable it explicitly.
+  ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Spotify Booster"
+  StrCpy $1 '"$INSTDIR\${APP_EXE}" --minimized'
+  StrCmp $0 $1 0 autostartSelectionDone
+  SectionGetFlags ${SEC_AUTOSTART} $2
+  IntOp $2 $2 | ${SF_SELECTED}
+  SectionSetFlags ${SEC_AUTOSTART} $2
+autostartSelectionDone:
+FunctionEnd
 
 LangString DESC_MAIN ${LANG_ENGLISH} "Installs Spotify Booster for the current Windows user. No administrator access is required."
 LangString DESC_DESKTOP ${LANG_ENGLISH} "Creates a shortcut on the desktop."

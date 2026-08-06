@@ -12,7 +12,6 @@ using SpotifyBooster.Core.Services;
 using SpotifyBooster.Infrastructure.Diagnostics;
 using SpotifyBooster.Infrastructure.Logging;
 using SpotifyBooster.Infrastructure.Persistence;
-using SpotifyBooster.Infrastructure.Spotify;
 using SpotifyBooster.Infrastructure.Storage;
 using SpotifyBooster.Infrastructure.Windows;
 
@@ -61,7 +60,8 @@ public partial class App : Application
             collection.AddSingleton<ApplicationState>();
             collection.AddSingleton<IErrorSink, InMemoryErrorSink>();
             collection.AddSingleton<ISettingsService, JsonSettingsService>();
-            collection.AddSingleton<ISpotifyProcessDetector, SpotifyProcessDetector>();
+            collection.AddSingleton<IAudioApplicationProcessDetector,
+                AudioApplicationProcessDetector>();
             collection.AddSingleton<IDiagnosticReportService, DiagnosticReportService>();
             collection.AddSingleton<IWindowsSettingsLauncher, WindowsSettingsLauncher>();
             collection.AddSingleton<IStartupService, StartupService>();

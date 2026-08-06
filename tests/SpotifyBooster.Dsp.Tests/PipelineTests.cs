@@ -189,10 +189,13 @@ public sealed class PipelineTests
         Assert.True(metrics.LimiterGainReductionDecibels > 0f);
     }
 
-    [Fact]
-    public void PanicResetUsesFastSmoothingAndReturnsMainAndOutputGainToUnity()
+    [Theory]
+    [InlineData(44_100)]
+    [InlineData(48_000)]
+    [InlineData(96_000)]
+    public void PanicResetUsesFastSmoothingAndReturnsMainAndOutputGainToUnity(
+        int sampleRate)
     {
-        const int sampleRate = 48_000;
         var pipeline = new DspPipeline(
             sampleRate,
             TransparentSettings(25f) with
@@ -217,8 +220,75 @@ public sealed class PipelineTests
         Assert.InRange(tailRms, expectedRms * 0.99, expectedRms * 1.01);
     }
 
+    [Theory]
+    [InlineData(44_100)]
+    [InlineData(48_000)]
+    [InlineData(96_000)]
+    public void PanicGainRampDescendsMonotonicallyAtSupportedRates(
+        int sampleRate)
+    {
+        const float startingGainDecibels = 75f;
+        const float panicMilliseconds = 1.5f;
+        var pipeline = new DspPipeline(
+            sampleRate,
+            TransparentSettings(startingGainDecibels) with
+            {
+                GainSmoothingMilliseconds = 0f,
+                PanicSmoothingMilliseconds = panicMilliseconds,
+            });
+        pipeline.Process([0.001f, 0.001f]);
+        pipeline.PanicReset();
+
+        float previous = startingGainDecibels;
+        int sampleCount = (int)Math.Ceiling(
+            sampleRate * panicMilliseconds / 1000f);
+        for (int sample = 0; sample < sampleCount; sample++)
+        {
+            DspMetrics metrics = pipeline.Process([0.001f, 0.001f]);
+            Assert.InRange(metrics.AppliedMainGainDecibels, 0f, previous);
+            previous = metrics.AppliedMainGainDecibels;
+        }
+
+        Assert.InRange(previous, 0f, 0.0001f);
+    }
+
+    [Theory]
+    [InlineData("dc-block")]
+    [InlineData("bass")]
+    [InlineData("equalizer")]
+    public void NonFiniteRecoveryPreservesCleanChannelState(string module)
+    {
+        DspSettings settings = TransparentSettings() with
+        {
+            DcBlockEnabled = module == "dc-block",
+            BassBoostEnabled = module == "bass",
+            LowShelfGainDecibels = 18f,
+            EqualizerEnabled = module == "equalizer",
+            EqualizerLowGainDecibels = 12f,
+            EqualizerMidGainDecibels = 12f,
+            EqualizerHighGainDecibels = 12f,
+        };
+        var contaminated = new DspPipeline(48_000, settings);
+        var reference = new DspPipeline(48_000, settings);
+        float[] contaminatedBuffer = CreateContaminationProbe();
+        float[] referenceBuffer = (float[])contaminatedBuffer.Clone();
+        for (int index = 0; index < referenceBuffer.Length; index += 2)
+        {
+            referenceBuffer[index] = 0f;
+        }
+
+        DspMetrics metrics = contaminated.Process(contaminatedBuffer);
+        reference.Process(referenceBuffer);
+
+        Assert.True(metrics.SanitizedSamples > 0);
+        for (int index = 1; index < contaminatedBuffer.Length; index += 2)
+        {
+            Assert.Equal(referenceBuffer[index], contaminatedBuffer[index]);
+        }
+    }
+
     [Fact]
-    public void PipelineSanitizesNonFiniteAndHugeSamples()
+    public void PipelineSanitizesNonFiniteWithoutClampingFiniteSamples()
     {
         var pipeline = new DspPipeline(48_000, TransparentSettings());
         float[] buffer =
@@ -231,90 +301,58 @@ public sealed class PipelineTests
         DspMetrics metrics = pipeline.Process(buffer);
 
         Assert.All(buffer, sample => Assert.True(float.IsFinite(sample)));
-        Assert.Equal(5, metrics.SanitizedSamples);
-        Assert.True(metrics.InputPeak <= DspPipeline.MaximumSafeMagnitude);
+        Assert.Equal(3, metrics.SanitizedSamples);
+        Assert.Equal(0f, buffer[0]);
+        Assert.Equal(float.MaxValue, buffer[1]);
+        Assert.Equal(-float.MaxValue, buffer[2]);
+        Assert.Equal(1e30f, buffer[3]);
     }
 
-    [Fact]
-    public void OneThousandDecibelGainKeepsSilenceExactlySilent()
+    [Theory]
+    [InlineData(0f, 1d)]
+    [InlineData(25f, 17.7827941003892d)]
+    [InlineData(40f, 100d)]
+    [InlineData(60f, 1000d)]
+    [InlineData(75f, 5623.41325190349d)]
+    public void RawGainUsesExactFormulaWithoutHiddenClamp(float decibels, double expected)
     {
         var pipeline = new DspPipeline(
             48_000,
-            TransparentSettings(1_000f));
-        var buffer = new float[2_048];
+            TransparentSettings(decibels) with { GainSmoothingMilliseconds = 0f });
+        float[] buffer = [0.0001f, -0.0001f];
 
         DspMetrics metrics = pipeline.Process(buffer);
 
-        Assert.All(buffer, sample => Assert.Equal(0f, sample));
-        Assert.Equal(0f, metrics.AfterMainGainPeak);
+        Assert.Equal(decibels, metrics.AppliedMainGainDecibels);
+        Assert.InRange(
+            buffer[0],
+            (float)(0.0001d * expected * (1d - 2e-6)),
+            (float)(0.0001d * expected * (1d + 2e-6)));
+        Assert.Equal(-buffer[0], buffer[1]);
+    }
+
+    [Fact]
+    public void SeventyFiveDecibelGainDoesNotClampOneToSixtyFour()
+    {
+        var pipeline = new DspPipeline(
+            48_000,
+            TransparentSettings(75f) with { GainSmoothingMilliseconds = 0f });
+        float[] buffer = [1f, -1f];
+
+        DspMetrics metrics = pipeline.Process(buffer);
+
+        Assert.InRange(buffer[0], 5623.40f, 5623.43f);
+        Assert.Equal(-buffer[0], buffer[1]);
+        Assert.True(metrics.AfterMainGainPeak > 64f);
         Assert.Equal(0, metrics.SanitizedSamples);
-        Assert.Equal(1_000f, metrics.AppliedMainGainDecibels);
     }
 
     [Fact]
-    public void OneThousandDecibelGainSaturatesTinyNonzeroSamplesWithTheirSign()
+    public void SeventyFiveDecibelProcessDoesNotAllocate()
     {
         var pipeline = new DspPipeline(
             48_000,
-            TransparentSettings(1_000f));
-        float[] buffer =
-        [
-            float.Epsilon, -float.Epsilon,
-            1e-30f, -1e-30f,
-        ];
-
-        DspMetrics metrics = pipeline.Process(buffer);
-
-        Assert.Equal(
-            new float[]
-            {
-                DspPipeline.MaximumSafeMagnitude,
-                -DspPipeline.MaximumSafeMagnitude,
-                DspPipeline.MaximumSafeMagnitude,
-                -DspPipeline.MaximumSafeMagnitude,
-            },
-            buffer);
-        Assert.All(buffer, sample => Assert.True(float.IsFinite(sample)));
-        Assert.Equal(DspPipeline.MaximumSafeMagnitude, metrics.AfterMainGainPeak);
-        Assert.Equal(buffer.Length, metrics.SanitizedSamples);
-    }
-
-    [Fact]
-    public void ProtectedOneThousandDecibelGainEndsAtLimiterCeiling()
-    {
-        float ceiling = GainConversion.DecibelsToFactor(-1f);
-        var pipeline = new DspPipeline(
-            48_000,
-            TransparentSettings(1_000f) with
-            {
-                LimiterEnabled = true,
-                LimiterCeilingDecibels = -1f,
-            });
-        var buffer = new float[2_048];
-        Array.Fill(buffer, 0.25f);
-
-        DspMetrics metrics = pipeline.Process(buffer);
-
-        Assert.All(
-            buffer,
-            sample =>
-            {
-                Assert.True(float.IsFinite(sample));
-                Assert.InRange(Math.Abs(sample), 0f, ceiling + 0.000001f);
-            });
-        Assert.Equal(DspPipeline.MaximumSafeMagnitude, metrics.AfterMainGainPeak);
-        Assert.True(metrics.AfterLimiterPeak <= ceiling + 0.000001f);
-        Assert.True(metrics.OutputPeak <= ceiling + 0.000001f);
-        Assert.True(metrics.LimitedFrames > 0);
-        Assert.True(metrics.LimiterGainReductionDecibels > 0f);
-    }
-
-    [Fact]
-    public void OneThousandDecibelProcessDoesNotAllocate()
-    {
-        var pipeline = new DspPipeline(
-            48_000,
-            TransparentSettings(1_000f));
+            TransparentSettings(75f) with { GainSmoothingMilliseconds = 0f });
         var buffer = new float[2_048];
         Array.Fill(buffer, 0.001f);
         pipeline.Process(buffer);
@@ -397,5 +435,23 @@ public sealed class PipelineTests
         }
 
         return Math.Sqrt(sum / buffer.Length);
+    }
+
+    private static float[] CreateContaminationProbe()
+    {
+        var buffer = new float[64];
+        for (int frame = 0; frame < buffer.Length / 2; frame++)
+        {
+            buffer[frame * 2] = frame switch
+            {
+                8 => float.MaxValue,
+                9 => -float.MaxValue,
+                _ => 0.1f,
+            };
+            buffer[(frame * 2) + 1] = 0.2f
+                * MathF.Sin(2f * MathF.PI * frame / 17f);
+        }
+
+        return buffer;
     }
 }

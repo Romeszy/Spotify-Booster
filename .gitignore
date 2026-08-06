@@ -21,6 +21,14 @@ settings.json
 settings.json.tmp
 diagnostic-*.txt
 
+# Local API/backend configuration and private Supabase state
+.env
+.env.local
+.env.*.local
+appsettings.Development.json
+src/SpotifyBooster.Api/appsettings.Development.json
+backend/supabase/.local/
+
 # OS/editor noise
 .DS_Store
 Thumbs.db

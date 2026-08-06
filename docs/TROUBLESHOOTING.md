@@ -15,24 +15,64 @@ Pour VB-CABLE, la source attendue dans Booster est généralement **CABLE Output
 
 La route exige une source mono/stéréo reconnue comme virtuelle. La détection s’appuie sur les métadonnées et des marqueurs tels que `Virtual`, `Cable`, `VB-Audio`, `VoiceMeeter`, `Loopback` ou `Streaming`.
 
-Un nom inhabituel peut être refusé par prudence. Exportez le diagnostic et relevez le nom/format exact ; la V2 n’expose pas de contournement de route non sécurisé.
+Un nom inhabituel peut être refusé par prudence. Exportez le diagnostic et
+relevez le nom/format exact ; la version actuelle n’expose pas de contournement
+de route non sécurisé.
 
-## Spotify est détecté, mais aucun signal n’arrive
+## L’application est détectée, mais aucun signal n’arrive
 
 La détection du processus et le routage audio sont indépendants.
 
 1. Ouvrez le mélangeur de volume Windows.
-2. Vérifiez que Spotify utilise **CABLE Input**.
+2. Vérifiez que l’application testée utilise **CABLE Input** comme sortie.
 3. Vérifiez que Booster capture **CABLE Output**.
-4. Lancez réellement une piste.
+4. Lancez réellement un son dans l’application.
 5. Vérifiez que le câble n’est pas désactivé ou monopolisé en mode exclusif.
 6. Observez le vu-mètre d’entrée et la page Diagnostic.
 
-Le moteur peut fonctionner même si la détection du processus Spotify échoue.
+Le moteur peut fonctionner même si la détection du processus échoue. À
+l’inverse, un processus détecté ne prouve pas que sa sortie est routée vers le
+câble. Spotify est seulement le choix par défaut de l’assistant.
+
+## Une application personnalisée n’est pas détectée
+
+- saisissez seulement le nom du processus, avec ou sans `.exe`, pas son chemin
+  complet ;
+- utilisez par exemple `vlc` ou `tidal.exe` ;
+- ouvrez le Gestionnaire des tâches si le nom réel diffère du nom commercial ;
+- retirez puis ajoutez de nouveau le nom après correction ;
+- Spotify Booster refuse son propre nom de processus et limite la liste à
+  seize entrées.
+
+La détection reste informative. Si le processus est mal nommé mais que Windows
+l’envoie réellement vers le câble, son signal sera quand même traité.
 
 ## Le signal contient d’autres applications
 
 Toutes ces applications utilisent le même câble. Replacez jeux, navigateur, Discord et sons système sur leurs sorties habituelles. Booster ne sépare pas plusieurs flux déjà mélangés.
+
+Décochez une application dans Booster uniquement pour modifier le guide et la
+surveillance. Ce geste ne la retire pas du câble : rendez-lui sa sortie
+habituelle dans le mélangeur Windows.
+
+## Discord contient la mauvaise voix ou le microphone
+
+Spotify Booster reçoit la sortie Discord complète. Il ne peut isoler ni une
+personne, ni un bot, ni un salon. Dans Discord et dans Windows :
+
+- laissez le microphone sur son entrée physique habituelle ;
+- routez uniquement la sortie Discord vers CABLE Input ;
+- ne choisissez jamais le câble comme entrée micro ;
+- si le micro apparaît dans Booster, retirez tout retour **Écouter ce
+  périphérique** ou toute boucle créée par un autre mélangeur.
+
+## Un seul onglet du navigateur devait être amplifié
+
+La sélection Chrome, Edge, Opera GX, Firefox ou Brave travaille au niveau du
+processus détecté et le câble reçoit le mix réellement produit par Windows.
+Spotify Booster ne sépare pas les onglets. Utilisez un navigateur ou un profil
+séparé si Windows l’expose comme session audio distincte, puis vérifiez le
+résultat dans le mélangeur ; l’application ne garantit pas cette séparation.
 
 ## Pas de son en sortie
 
@@ -68,13 +108,13 @@ Le gain de sortie est placé après le limiteur : une valeur positive peut recr�
 
 Le mode Protégé refuse toute valeur positive et la ramène au plus à `0 dB`. Direct et Expert brut l’autorisent, avec un avertissement visible.
 
-La V2 ne diminue pas automatiquement et durablement la consigne de gain. Si le gain affiché change, vérifiez un raccourci global, une action du tray, un profil ou la panique. La différence momentanée entre gain demandé et appliqué est normale pendant le lissage.
+La V3 ne diminue pas automatiquement et durablement la consigne de gain. Si le gain affiché change, vérifiez un raccourci global, une action du tray, un profil ou la panique. La différence momentanée entre gain demandé et appliqué est normale pendant le lissage.
 
 ## Direct ou Expert brut sature immédiatement
 
-Ces modes désactivent les étages dynamiques lors de leur sélection. Repassez en Protégé ou réactivez manuellement le soft clipper/limiteur. Expert brut n’a aucune protection cachée et autorise par défaut jusqu’à `+1000 dB`.
+Ces modes désactivent les étages dynamiques lors de leur sélection. Repassez en Protégé ou réactivez manuellement le soft clipper/limiteur. Expert brut n’a aucune protection cachée et autorise jusqu’à `+75 dB` par pas de `0,5 dB`.
 
-À `+1000 dB`, le facteur mathématique demandé vaut `10^50`. Une telle amplitude brute ne tient pas dans un échantillon float32 : le DSP lisse le gain en dB, calcule en double précision et borne les magnitudes internes à `±64`. Le signal reste fini, mais le résultat est essentiellement saturé ou limité, ne décrit pas directement le volume perçu et n’apporte aucune puissance physique supplémentaire. Cette borne de stabilité ne remplace pas le limiteur : en Expert brut, la sortie peut dépasser son plafond configuré.
+À `+75 dB`, le facteur mathématique demandé vaut environ `5623,413`. Le DSP lisse le gain en dB, calcule en double précision et ne sature qu’un overflow numérique à `±float.MaxValue`. Le résultat peut être immédiatement saturé ou distordu, ne décrit pas le volume perçu et n’apporte aucune garantie de sécurité auditive. En Expert brut, la sortie peut dépasser le plafond configuré lorsque le limiteur est désactivé ou lorsqu’un gain de sortie positif est appliqué après lui.
 
 ## Le bouton panique ne semble pas instantané
 
@@ -135,9 +175,12 @@ Une autre application ou Windows peut avoir réservé la combinaison.
 
 Une combinaison doit contenir au moins un modificateur (`Ctrl`, `Alt`, `Shift` ou `Win`) et exactement une touche. Deux actions ne peuvent pas partager la même combinaison.
 
-## Les réglages V1 ont changé après mise à jour
+## Les anciens réglages ont changé après mise à jour
 
-Le premier chargement V2 convertit le pourcentage en dB, crée `settings.schema1.backup.json`, puis réécrit `settings.json`.
+La migration V1 convertit d’abord le pourcentage en dB, crée
+`settings.schema1.backup.json`, puis amène le fichier au schéma V3. V3 ajoute
+notamment `ManualRouting`; en l’absence de sélection antérieure, Spotify reste
+sélectionné par défaut.
 
 - `100 % → 0 dB` ;
 - `200 % → +6,0206 dB` ;
@@ -166,4 +209,7 @@ Le mode portable peut échouer si le dossier de l’application n’est pas insc
 
 ## Le rapport de diagnostic contient-il des données sensibles ?
 
-Il contient les noms visibles des périphériques, PID Spotify, formats, métriques et erreurs expurgées. Il exclut les IDs d’endpoints, chemins, arguments et contenu audio. Relisez-le avant partage.
+Il contient les noms visibles des périphériques, les familles et noms des
+processus audio sélectionnés détectés, leurs PID, les formats, métriques et
+erreurs expurgées. Il exclut les IDs d’endpoints, chemins, arguments et contenu
+audio. Relisez-le avant partage.

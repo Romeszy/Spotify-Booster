@@ -29,9 +29,19 @@ public sealed class DcBlocker
 
     public void Reset()
     {
+        ResetLeft();
+        ResetRight();
+    }
+
+    public void ResetLeft()
+    {
         _previousInputLeft = 0f;
-        _previousInputRight = 0f;
         _previousOutputLeft = 0f;
+    }
+
+    public void ResetRight()
+    {
+        _previousInputRight = 0f;
         _previousOutputRight = 0f;
     }
 }

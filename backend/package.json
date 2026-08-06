@@ -1,0 +1,25 @@
+{
+  "name": "spotify-booster-backend-tooling",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pinned local Supabase development tooling for Spotify Booster.",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "bootstrap": "pwsh -NoProfile -File ./scripts/bootstrap-supabase-local.ps1",
+    "supabase:version": "supabase --version",
+    "db:reset": "supabase db reset --workdir .",
+    "db:lint": "supabase db lint --workdir . --level error",
+    "test:db": "supabase test db --workdir .",
+    "test:e2e:auth-api": "node ./scripts/e2e-auth-api.mjs",
+    "gate:local:auth-api": "bash ./scripts/run-local-auth-api-gate.sh",
+    "test:db:atomicity": "bash ./scripts/test-migration-atomicity.sh",
+    "test": "node --test ./scripts/*.test.mjs",
+    "lint": "node --check ./scripts/e2e-auth-api.mjs && node --check ./scripts/node-version.test.mjs && node --check ./scripts/process-tree.test.mjs && node --check ./scripts/validate-local-assets.mjs && node --check ./scripts/validate-local-assets.test.mjs"
+  },
+  "devDependencies": {
+    "supabase": "2.109.1"
+  }
+}

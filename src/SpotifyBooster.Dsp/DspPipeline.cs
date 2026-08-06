@@ -20,7 +20,6 @@ public readonly record struct DspMetrics(
 
 public sealed class DspPipeline
 {
-    public const float MaximumSafeMagnitude = 64f;
     private const float EqualizerLowFrequencyHz = 120f;
     private const float EqualizerMidFrequencyHz = 1_000f;
     private const float EqualizerHighFrequencyHz = 8_000f;
@@ -175,6 +174,19 @@ public sealed class DspPipeline
             if (Settings.DcBlockEnabled)
             {
                 dcBlocker.Process(ref left, ref right);
+                int contaminatedChannels = SanitizeChannels(
+                    ref left,
+                    ref right,
+                    ref sanitizedSamples);
+                if ((contaminatedChannels & 1) != 0)
+                {
+                    dcBlocker.ResetLeft();
+                }
+
+                if ((contaminatedChannels & 2) != 0)
+                {
+                    dcBlocker.ResetRight();
+                }
             }
 
             afterDcPeak = UpdatePeak(afterDcPeak, left, right);
@@ -186,7 +198,19 @@ public sealed class DspPipeline
             if (Settings.BassBoostEnabled)
             {
                 lowShelf.Process(ref left, ref right);
-                SanitizePair(ref left, ref right, ref sanitizedSamples);
+                int contaminatedChannels = SanitizeChannels(
+                    ref left,
+                    ref right,
+                    ref sanitizedSamples);
+                if ((contaminatedChannels & 1) != 0)
+                {
+                    lowShelf.ResetLeft();
+                }
+
+                if ((contaminatedChannels & 2) != 0)
+                {
+                    lowShelf.ResetRight();
+                }
             }
 
             afterBassPeak = UpdatePeak(afterBassPeak, left, right);
@@ -194,20 +218,42 @@ public sealed class DspPipeline
             if (Settings.EqualizerEnabled)
             {
                 equalizerLow.Process(ref left, ref right);
+                ResetEqualizerChannels(
+                    equalizerLow,
+                    SanitizeChannels(
+                    ref left,
+                    ref right,
+                    ref sanitizedSamples));
                 equalizerMid.Process(ref left, ref right);
+                ResetEqualizerChannels(
+                    equalizerMid,
+                    SanitizeChannels(
+                    ref left,
+                    ref right,
+                    ref sanitizedSamples));
                 equalizerHigh.Process(ref left, ref right);
-                SanitizePair(ref left, ref right, ref sanitizedSamples);
+                ResetEqualizerChannels(
+                    equalizerHigh,
+                    SanitizeChannels(
+                    ref left,
+                    ref right,
+                    ref sanitizedSamples));
             }
 
             afterEqualizerPeak = UpdatePeak(afterEqualizerPeak, left, right);
             compressor.Process(ref left, ref right);
-            SanitizePair(ref left, ref right, ref sanitizedSamples);
+            if (SanitizePair(ref left, ref right, ref sanitizedSamples))
+            {
+                compressor.Reset();
+            }
+
             maximumCompressorReduction = Math.Max(
                 maximumCompressorReduction,
                 compressor.GainReductionDecibels);
             afterCompressorPeak = UpdatePeak(afterCompressorPeak, left, right);
 
             softClippedSamples += softClipper.Process(ref left, ref right);
+            SanitizePair(ref left, ref right, ref sanitizedSamples);
             afterSoftClipperPeak = UpdatePeak(afterSoftClipperPeak, left, right);
             if (limiter.Process(ref left, ref right))
             {
@@ -217,13 +263,16 @@ public sealed class DspPipeline
             maximumLimiterReduction = Math.Max(
                 maximumLimiterReduction,
                 limiter.GainReductionDecibels);
-            SanitizePair(ref left, ref right, ref sanitizedSamples);
+            if (SanitizePair(ref left, ref right, ref sanitizedSamples))
+            {
+                limiter.Reset();
+            }
+
             afterLimiterPeak = UpdatePeak(afterLimiterPeak, left, right);
 
             float appliedOutputGain = outputGain.Next();
-            left *= appliedOutputGain;
-            right *= appliedOutputGain;
-            SanitizePair(ref left, ref right, ref sanitizedSamples);
+            left = ApplyGainSaturated(left, appliedOutputGain, ref sanitizedSamples);
+            right = ApplyGainSaturated(right, appliedOutputGain, ref sanitizedSamples);
             if (Math.Abs(left) > 1f)
             {
                 clippedSamples++;
@@ -295,7 +344,7 @@ public sealed class DspPipeline
     }
 
     private static float SanitizeGainDecibels(float decibels) =>
-        float.IsFinite(decibels) ? Math.Clamp(decibels, 0f, 1_000f) : 0f;
+        float.IsFinite(decibels) ? Math.Clamp(decibels, 0f, 75f) : 0f;
 
     private static float ApplyGainSaturated(
         float sample,
@@ -303,22 +352,22 @@ public sealed class DspPipeline
         ref int count)
     {
         double amplified = sample * gain;
-        if (amplified > MaximumSafeMagnitude)
-        {
-            count++;
-            return MaximumSafeMagnitude;
-        }
-
-        if (amplified < -MaximumSafeMagnitude)
-        {
-            count++;
-            return -MaximumSafeMagnitude;
-        }
-
-        if (!double.IsFinite(amplified))
+        if (double.IsNaN(amplified))
         {
             count++;
             return 0f;
+        }
+
+        if (amplified > float.MaxValue)
+        {
+            count++;
+            return float.MaxValue;
+        }
+
+        if (amplified < -float.MaxValue)
+        {
+            count++;
+            return -float.MaxValue;
         }
 
         return (float)amplified;
@@ -327,13 +376,51 @@ public sealed class DspPipeline
     private static float UpdatePeak(float peak, float left, float right) =>
         Math.Max(peak, Math.Max(Math.Abs(left), Math.Abs(right)));
 
-    private static void SanitizePair(
+    private static bool SanitizePair(
         ref float left,
         ref float right,
         ref int count)
     {
+        bool contaminated = !float.IsFinite(left) || !float.IsFinite(right);
         left = Sanitize(left, ref count);
         right = Sanitize(right, ref count);
+        return contaminated;
+    }
+
+    private static int SanitizeChannels(
+        ref float left,
+        ref float right,
+        ref int count)
+    {
+        int contaminatedChannels = 0;
+        if (!float.IsFinite(left))
+        {
+            left = Sanitize(left, ref count);
+            contaminatedChannels |= 1;
+        }
+
+        if (!float.IsFinite(right))
+        {
+            right = Sanitize(right, ref count);
+            contaminatedChannels |= 2;
+        }
+
+        return contaminatedChannels;
+    }
+
+    private static void ResetEqualizerChannels(
+        StereoBiquad equalizer,
+        int contaminatedChannels)
+    {
+        if ((contaminatedChannels & 1) != 0)
+        {
+            equalizer.ResetLeft();
+        }
+
+        if ((contaminatedChannels & 2) != 0)
+        {
+            equalizer.ResetRight();
+        }
     }
 
     private static float Sanitize(float sample, ref int count)
@@ -341,19 +428,9 @@ public sealed class DspPipeline
         if (!float.IsFinite(sample))
         {
             count++;
-            return 0f;
-        }
-
-        if (sample > MaximumSafeMagnitude)
-        {
-            count++;
-            return MaximumSafeMagnitude;
-        }
-
-        if (sample < -MaximumSafeMagnitude)
-        {
-            count++;
-            return -MaximumSafeMagnitude;
+            return float.IsNaN(sample)
+                ? 0f
+                : MathF.CopySign(float.MaxValue, sample);
         }
 
         return sample;

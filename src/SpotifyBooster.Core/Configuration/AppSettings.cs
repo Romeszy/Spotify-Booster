@@ -1,3 +1,6 @@
+using System.Text.Json.Serialization;
+using SpotifyBooster.Core.Models;
+
 namespace SpotifyBooster.Core.Configuration;
 
 public enum WindowCloseBehavior
@@ -43,14 +46,54 @@ public sealed record HotkeySettings
     public string ToggleWindow { get; init; } = "Ctrl+Alt+S";
 }
 
+public sealed record ManualRoutingSettings
+{
+    public IReadOnlyList<AudioApplicationKind> SelectedApplications { get; init; } =
+    [
+        AudioApplicationKind.Spotify,
+    ];
+
+    public IReadOnlyList<string> CustomProcessNames { get; init; } = [];
+
+    public bool Equals(ManualRoutingSettings? other)
+    {
+        return other is not null
+            && (ReferenceEquals(this, other)
+                || (SelectedApplications.SequenceEqual(other.SelectedApplications)
+                    && CustomProcessNames.SequenceEqual(
+                        other.CustomProcessNames,
+                        StringComparer.Ordinal)));
+    }
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        foreach (AudioApplicationKind application in SelectedApplications)
+        {
+            hash.Add(application);
+        }
+
+        foreach (string processName in CustomProcessNames)
+        {
+            hash.Add(processName, StringComparer.Ordinal);
+        }
+
+        return hash.ToHashCode();
+    }
+}
+
 public sealed record AppSettings
 {
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
 
     public bool FirstRunCompleted { get; init; }
 
+    public bool Expert75DbAcknowledged { get; init; }
+
+    // Source-compatible alias for the audio host. It is never persisted in V3.
+    [JsonIgnore]
     public bool ExpertModeAcknowledged { get; init; }
 
     public string? SourceDeviceId { get; init; }
@@ -83,6 +126,8 @@ public sealed record AppSettings
     public bool ShowLinearPercent { get; init; } = true;
 
     public bool DetailedDiagnostics { get; init; }
+
+    public ManualRoutingSettings ManualRouting { get; init; } = new();
 
     public HotkeySettings Hotkeys { get; init; } = new();
 

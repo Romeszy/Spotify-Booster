@@ -2,12 +2,12 @@
 
 ## Surface implémentée
 
-La version applicative et les scripts de release utilisent `0.2.0` pour `win-x64`.
+La version applicative et les scripts de release utilisent `0.2.1` pour `win-x64`.
 
 | Fichier | Rôle |
 |---|---|
 | `scripts\build.ps1` | restore verrouillé puis build Release reproductible |
-| `scripts\test.ps1` | restore optionnel, exécution des trois projets de tests et sortie TRX facultative |
+| `scripts\test.ps1` | restore optionnel, exécution des cinq projets de tests et sortie TRX facultative |
 | `scripts\publish-portable.ps1` | publication self-contained single-file et création du mode portable |
 | `scripts\build-installer.ps1` | compilation de l’installateur NSIS |
 | `scripts\package-release.ps1` | nettoyage contrôlé, build, tests, portable, installateur, hashes et rapport |
@@ -46,7 +46,7 @@ Le script :
 1. vérifie puis nettoie uniquement `artifacts` ;
 2. restaure la solution en mode verrouillé ;
 3. compile la Release avec `ContinuousIntegrationBuild=true` ;
-4. exécute les tests sans rebuild et conserve trois rapports TRX ;
+4. exécute les tests sans rebuild et conserve cinq rapports TRX ;
 5. publie le portable ;
 6. construit l’installateur NSIS ;
 7. génère `artifacts\checksums\SHA256SUMS.txt` en UTF-8 sans BOM ;
@@ -115,6 +115,8 @@ L’installateur :
 - crée le raccourci du menu Démarrer ;
 - propose un raccourci Bureau ;
 - propose le démarrage automatique utilisateur ;
+- présélectionne le démarrage automatique lors d’une mise à jour si l’entrée
+  installée correspond encore au binaire courant ;
 - écrit l’entrée de désinstallation sous HKCU ;
 - installe un désinstalleur ;
 - embarque `LICENSE.txt`, `THIRD_PARTY_NOTICES.md` et le dossier `licenses`.
@@ -142,9 +144,12 @@ Le manifeste est écrit en UTF-8 sans BOM. Le rapport consigne la version inform
 
 Si la signature intervient après le script, recalculez le manifeste sur les fichiers signés.
 
-## État du package de livraison
+## État du package de livraison desktop antérieur à la Phase A
 
-La livraison du 28 juillet 2026 est régénérée par le script complet depuis le commit propre. Elle a :
+La livraison desktop antérieure à la fondation commerciale, produite le
+28 juillet 2026, a été régénérée par le script complet depuis son commit
+propre. Son résultat historique ne valide pas les projets Phase A et ne doit
+pas être présenté comme une release commerciale. Elle a :
 
 - réussi le build Release sans avertissement ni erreur ;
 - réussi `162/162` tests ;

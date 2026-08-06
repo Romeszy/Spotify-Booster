@@ -17,6 +17,34 @@ public sealed class DiagnosticReportService : IDiagnosticReportService
         builder.AppendLine($"Système : Windows {Environment.OSVersion.Version}");
         builder.AppendLine($"Runtime : .NET {Environment.Version}");
         builder.AppendLine();
+        if (snapshot.ManualRouting is not null)
+        {
+            string selectedApplications = string.Join(
+                ", ",
+                snapshot.ManualRouting.SelectedApplications
+                    .Select(application => application.ToString())
+                    .Concat(snapshot.ManualRouting.CustomProcessNames.Select(
+                        processName => $"{processName}.exe")));
+            builder.AppendLine(
+                $"Applications choisies pour le routage manuel : {selectedApplications}");
+            builder.AppendLine(
+                "Isolation : informative ; tout signal réellement présent sur le câble est traité.");
+        }
+
+        if (snapshot.ApplicationProcesses is not null)
+        {
+            builder.AppendLine(
+                $"Processus audio sélectionnés détectés : {snapshot.ApplicationProcesses.Count}");
+            foreach (DetectedAudioApplicationProcess process in snapshot.ApplicationProcesses)
+            {
+                builder.AppendLine(
+                    CultureInfo.InvariantCulture,
+                    $"- {process.ApplicationKind}: {process.ProcessName} (PID {process.ProcessId}, {process.Distribution})");
+            }
+
+            builder.AppendLine();
+        }
+
         builder.AppendLine($"Spotify détecté : {(snapshot.SpotifyProcesses.Count > 0 ? "oui" : "non")}");
         foreach (SpotifyProcessInfo process in snapshot.SpotifyProcesses)
         {

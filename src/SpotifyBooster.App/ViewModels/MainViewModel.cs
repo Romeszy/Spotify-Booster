@@ -32,7 +32,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
     private readonly IAudioDeviceService deviceService;
     private readonly IAudioEngine audioEngine;
     private readonly ISettingsService settingsService;
-    private readonly ISpotifyProcessDetector spotifyDetector;
+    private readonly IAudioApplicationProcessDetector applicationProcessDetector;
     private readonly IDiagnosticReportService diagnosticReportService;
     private readonly IDiagnosticFileExporter diagnosticFileExporter;
     private readonly IWindowsSettingsLauncher windowsSettingsLauncher;
@@ -40,7 +40,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
     private readonly IErrorSink errorSink;
     private readonly ApplicationState applicationState;
     private readonly ILogger<MainViewModel> logger;
-    private readonly DispatcherTimer spotifyTimer;
+    private readonly DispatcherTimer applicationTimer;
     private readonly DispatcherTimer metricsTimer;
     private readonly SemaphoreSlim saveSemaphore = new(1, 1);
     private CancellationTokenSource? saveDebounce;
@@ -74,6 +74,8 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
     private bool globalHotkeysEnabled;
     private bool detailedDiagnostics;
     private bool spotifyDetected;
+    private bool applicationDetectionAvailable = true;
+    private string customProcessNameInput = string.Empty;
     private AudioEngineState engineState = AudioEngineState.Stopped;
     private bool busy;
     private bool clippingDetected;
@@ -94,7 +96,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
     private bool setupPanicTested;
     private AudioEngineMetrics lastMetrics = AudioEngineMetrics.Empty;
     private bool suppressSettingsChanges;
-    private int spotifyRefreshInProgress;
+    private int applicationRefreshInProgress;
     private int initialized;
     private int disposed;
 
@@ -102,7 +104,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         IAudioDeviceService deviceService,
         IAudioEngine audioEngine,
         ISettingsService settingsService,
-        ISpotifyProcessDetector spotifyDetector,
+        IAudioApplicationProcessDetector applicationProcessDetector,
         IDiagnosticReportService diagnosticReportService,
         IDiagnosticFileExporter diagnosticFileExporter,
         IWindowsSettingsLauncher windowsSettingsLauncher,
@@ -114,7 +116,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         this.deviceService = deviceService;
         this.audioEngine = audioEngine;
         this.settingsService = settingsService;
-        this.spotifyDetector = spotifyDetector;
+        this.applicationProcessDetector = applicationProcessDetector;
         this.diagnosticReportService = diagnosticReportService;
         this.diagnosticFileExporter = diagnosticFileExporter;
         this.windowsSettingsLauncher = windowsSettingsLauncher;
@@ -122,6 +124,16 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         this.errorSink = errorSink;
         this.applicationState = applicationState;
         this.logger = logger;
+        foreach (AudioApplicationKind application in Enum
+            .GetValues<AudioApplicationKind>()
+            .Where(application => application != AudioApplicationKind.Custom))
+        {
+            RoutedApplicationOptions.Add(
+                new AudioApplicationOptionViewModel(
+                    application,
+                    OnRoutedApplicationSelectionChanged));
+        }
+
         RefreshProfiles();
 
         NavigateCommand = new RelayCommand(Navigate);
@@ -137,6 +149,8 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         OpenVolumeMixerCommand = new RelayCommand(_ => OpenVolumeMixer());
         OpenSoundSettingsCommand = new RelayCommand(_ => OpenSoundSettings());
         OpenVbCableWebsiteCommand = new RelayCommand(_ => OpenVbCableWebsite());
+        AddCustomProcessCommand = new RelayCommand(_ => AddCustomProcess());
+        RemoveCustomProcessCommand = new RelayCommand(RemoveCustomProcess);
         PreviousSetupStepCommand = new RelayCommand(
             _ => SetupStep--,
             _ => SetupStep > 1);
@@ -154,11 +168,11 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
             HandleCommandException);
         DismissNotificationCommand = new RelayCommand(_ => ClearNotification());
 
-        spotifyTimer = new DispatcherTimer(DispatcherPriority.Background)
+        applicationTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
             Interval = TimeSpan.FromSeconds(2),
         };
-        spotifyTimer.Tick += OnSpotifyTimerTick;
+        applicationTimer.Tick += OnApplicationTimerTick;
 
         metricsTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
@@ -174,6 +188,16 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
     public ObservableCollection<AudioDeviceInfo> RenderDevices { get; } = [];
 
     public ObservableCollection<SpotifyProcessInfo> SpotifyProcesses { get; } = [];
+
+    public ObservableCollection<DetectedAudioApplicationProcess>
+        DetectedApplicationProcesses
+    { get; } = [];
+
+    public ObservableCollection<AudioApplicationOptionViewModel>
+        RoutedApplicationOptions
+    { get; } = [];
+
+    public ObservableCollection<string> CustomProcessNames { get; } = [];
 
     public ObservableCollection<string> Profiles { get; } = [];
 
@@ -196,6 +220,10 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
     public RelayCommand OpenSoundSettingsCommand { get; }
 
     public RelayCommand OpenVbCableWebsiteCommand { get; }
+
+    public RelayCommand AddCustomProcessCommand { get; }
+
+    public RelayCommand RemoveCustomProcessCommand { get; }
 
     public RelayCommand PreviousSetupStepCommand { get; }
 
@@ -288,7 +316,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
             }
 
             if (value == AudioProtectionMode.RawExpert
-                && !settings.ExpertModeAcknowledged)
+                && !settings.Expert75DbAcknowledged)
             {
                 pendingProtectionMode = value;
                 ExpertConfirmationVisible = true;
@@ -312,9 +340,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         AudioProtectionMode.Direct =>
             "Gain, Bass Boost et égaliseur. Aucune dynamique imposée.",
         AudioProtectionMode.RawExpert =>
-            string.Create(
-                CultureInfo.CurrentCulture,
-                $"Jusqu’à +{settings.Processing.ExpertMaximumGainDb:0} dB, sans réduction automatique ni protection cachée."),
+            "Jusqu’à +75 dB, sans réduction automatique ni protection cachée.",
         _ =>
             "Soft clipper et limiteur actifs. Le gain demandé ne change jamais tout seul.",
     };
@@ -324,14 +350,16 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         get => mainGainDb;
         set
         {
-            double rounded = Math.Round(
-                Math.Clamp(
-                    value,
-                    AudioProcessingSettings.MinimumGainDb,
-                    GainMaximumDb),
-                1,
-                MidpointRounding.AwayFromZero);
-            if (!SetProperty(ref mainGainDb, rounded))
+            double safe = ProtectionMode == AudioProtectionMode.RawExpert
+                ? AudioProcessingSettings.QuantizeRawExpertGain(value)
+                : Math.Round(
+                    Math.Clamp(
+                        value,
+                        AudioProcessingSettings.MinimumGainDb,
+                        GainMaximumDb),
+                    1,
+                    MidpointRounding.AwayFromZero);
+            if (!SetProperty(ref mainGainDb, safe))
             {
                 return;
             }
@@ -339,46 +367,20 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
             RaiseGainProperties();
             ApplyProcessingChange(processing => processing with
             {
-                MainGainDb = rounded,
+                MainGainDb = safe,
             });
         }
     }
 
     public double GainMaximumDb =>
         ProtectionMode == AudioProtectionMode.RawExpert
-            ? settings.Processing.ExpertMaximumGainDb
+            ? AudioProcessingSettings.RawExpertMaximumGainDb
             : AudioProcessingSettings.StandardMaximumGainDb;
 
-    public double ExpertMaximumGainDb
-    {
-        get => settings.Processing.ExpertMaximumGainDb;
-        set
-        {
-            double safe = Math.Round(
-                Math.Clamp(
-                    value,
-                    AudioProcessingSettings.MinimumExpertMaximumGainDb,
-                    AudioProcessingSettings.ArchitecturalMaximumGainDb),
-                1,
-                MidpointRounding.AwayFromZero);
-            if (Math.Abs(safe - settings.Processing.ExpertMaximumGainDb) < 0.001)
-            {
-                return;
-            }
-
-            double clampedGain = Math.Min(mainGainDb, safe);
-            mainGainDb = clampedGain;
-            ApplyProcessingChange(processing => processing with
-            {
-                ExpertMaximumGainDb = safe,
-                MainGainDb = clampedGain,
-            });
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(GainMaximumDb));
-            OnPropertyChanged(nameof(ProtectionModeDescription));
-            RaiseGainProperties();
-        }
-    }
+    public double GainStepDb =>
+        ProtectionMode == AudioProtectionMode.RawExpert
+            ? AudioProcessingSettings.RawExpertGainStepDb
+            : 0.1;
 
     public double LinearGainFactor =>
         GainConversion.DecibelsToFactorDouble(MainGainDb);
@@ -1067,6 +1069,73 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         ? $"Spotify détecté · {SpotifyProcesses.Count} processus"
         : "Spotify non détecté";
 
+    public string CustomProcessNameInput
+    {
+        get => customProcessNameInput;
+        set => SetProperty(ref customProcessNameInput, value);
+    }
+
+    public string SelectedApplicationNamesText
+    {
+        get
+        {
+            IEnumerable<string> builtInNames = RoutedApplicationOptions
+                .Where(option => option.IsSelected)
+                .Select(option => option.DisplayName);
+            string[] names = builtInNames
+                .Concat(CustomProcessNames.Select(name => $"{name}.exe"))
+                .ToArray();
+            return names.Length == 0
+                ? "Aucune application sélectionnée"
+                : string.Join(", ", names);
+        }
+    }
+
+    public string RoutedApplicationsStatusText
+    {
+        get
+        {
+            if (!ApplicationDetectionAvailable)
+            {
+                return "Détection des applications indisponible";
+            }
+
+            int selectedCount = RoutedApplicationOptions.Count(option => option.IsSelected)
+                + CustomProcessNames.Count;
+            int detectedBuiltInCount = DetectedApplicationProcesses
+                .Where(process => process.ApplicationKind != AudioApplicationKind.Custom)
+                .Select(process => process.ApplicationKind)
+                .Distinct()
+                .Count();
+            int detectedCustomCount = DetectedApplicationProcesses
+                .Where(process => process.ApplicationKind == AudioApplicationKind.Custom)
+                .Select(process => process.ProcessName)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count();
+            int detectedCount = detectedBuiltInCount + detectedCustomCount;
+            return detectedCount == 0
+                ? $"{selectedCount} source(s) choisie(s) · aucune détectée"
+                : $"{selectedCount} source(s) choisie(s) · {detectedCount} détectée(s)";
+        }
+    }
+
+    public bool ApplicationDetectionAvailable
+    {
+        get => applicationDetectionAvailable;
+        private set
+        {
+            if (SetProperty(ref applicationDetectionAvailable, value))
+            {
+                OnPropertyChanged(nameof(RoutedApplicationsStatusText));
+                OnPropertyChanged(nameof(DiagnosticRoutedApplicationsText));
+            }
+        }
+    }
+
+    public string ManualRoutingInstructionText =>
+        $"Dans le mélangeur Windows, choisissez CABLE Input uniquement pour : "
+        + $"{SelectedApplicationNamesText}. Toute autre application envoyée vers ce câble sera également amplifiée.";
+
     public AudioEngineState EngineState
     {
         get => engineState;
@@ -1210,12 +1279,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         {
             if (ProtectionMode == AudioProtectionMode.RawExpert)
             {
-                if (MainGainDb >= 100)
-                {
-                    return "Gain extrême : le DSP borne les magnitudes internes pour rester fini. Le résultat sera essentiellement saturé ou limité, sans puissance physique supplémentaire.";
-                }
-
-                return "Expert brut : aucune protection cachée. Un signal au-dessus de 0 dBFS peut saturer immédiatement.";
+                return "Expert brut jusqu’à +75 dB : aucune protection n’est imposée. Ce niveau peut saturer immédiatement et n’est pas sûr pour l’audition ou le matériel.";
             }
 
             if (OutputGainDb > 0)
@@ -1345,7 +1409,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
 
             return InputSignalPresent
                 ? "Signal reçu"
-                : "Aucun signal — vérifiez le routage Spotify";
+                : "Aucun signal — vérifiez le routage des applications choisies";
         }
     }
 
@@ -1410,7 +1474,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         1 => "Comprendre le chemin audio",
         2 => "Installer VB-CABLE séparément",
         3 => "Vérifier les deux côtés du câble",
-        4 => "Router uniquement Spotify",
+        4 => "Choisir et router les applications",
         5 => "Choisir la source et la sortie",
         6 => "Tester le signal à 0 dB",
         _ => "Dépannage et fin de configuration",
@@ -1494,6 +1558,17 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
                 SpotifyProcesses.Select(process =>
                     $"{process.ProcessName} · PID {process.ProcessId} · {process.Distribution}"));
 
+    public string DiagnosticRoutedApplicationsText =>
+        !ApplicationDetectionAvailable
+            ? $"Sélection : {SelectedApplicationNamesText}\nDétection indisponible. Consultez les erreurs récentes."
+            : DetectedApplicationProcesses.Count == 0
+            ? $"Sélection : {SelectedApplicationNamesText}\nAucun processus sélectionné détecté."
+            : $"Sélection : {SelectedApplicationNamesText}\n"
+                + string.Join(
+                    Environment.NewLine,
+                    DetectedApplicationProcesses.Select(process =>
+                        $"{process.ApplicationKind} · {process.ProcessName} · PID {process.ProcessId}"));
+
     public string DiagnosticErrorsText
     {
         get
@@ -1531,7 +1606,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
 
             LoadFieldsFromSettings();
             await RefreshDevicesCoreAsync();
-            await RefreshSpotifyAsync();
+            await RefreshApplicationsAsync();
             applicationState.SetSettings(settings);
             if (!settings.FirstRunCompleted)
             {
@@ -1539,7 +1614,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
                 SetupStep = 1;
             }
 
-            spotifyTimer.Start();
+            applicationTimer.Start();
             metricsTimer.Start();
         }
         finally
@@ -1553,7 +1628,10 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         {
             await WaitForStartupPrerequisitesAsync();
             bool spotifyReady =
-                !settings.WaitForSpotifyOnStartup || SpotifyDetected;
+                !settings.WaitForSpotifyOnStartup
+                || !settings.ManualRouting.SelectedApplications.Contains(
+                    AudioApplicationKind.Spotify)
+                || SpotifyDetected;
             if (HasValidRoute && spotifyReady)
             {
                 await ToggleEngineAsync();
@@ -1579,8 +1657,8 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
             return;
         }
 
-        spotifyTimer.Stop();
-        spotifyTimer.Tick -= OnSpotifyTimerTick;
+        applicationTimer.Stop();
+        applicationTimer.Tick -= OnApplicationTimerTick;
         metricsTimer.Stop();
         metricsTimer.Tick -= OnMetricsTimerTick;
         audioEngine.StatusChanged -= OnEngineStatusChanged;
@@ -1675,6 +1753,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         try
         {
             await RefreshDevicesCoreAsync();
+            await RefreshApplicationsAsync();
         }
         finally
         {
@@ -1867,7 +1946,10 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         bool waitForDevices =
             settings.WaitForDevicesOnStartup && !HasValidRoute;
         bool waitForSpotify =
-            settings.WaitForSpotifyOnStartup && !SpotifyDetected;
+            settings.WaitForSpotifyOnStartup
+            && settings.ManualRouting.SelectedApplications.Contains(
+                AudioApplicationKind.Spotify)
+            && !SpotifyDetected;
         if (!waitForDevices && !waitForSpotify)
         {
             return;
@@ -1889,7 +1971,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
 
                 if (waitForSpotify)
                 {
-                    await RefreshSpotifyAsync();
+                    await RefreshApplicationsAsync();
                     waitForSpotify = !SpotifyDetected;
                 }
 
@@ -1915,7 +1997,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
     {
         settings = settings with
         {
-            ExpertModeAcknowledged = true,
+            Expert75DbAcknowledged = true,
         };
         ExpertConfirmationVisible = false;
         AudioProtectionMode target =
@@ -1940,7 +2022,9 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
             SelectedOutput,
             audioEngine.Status,
             errorSink.GetRecent(),
-            settings.Processing);
+            settings.Processing,
+            DetectedApplicationProcesses.ToArray(),
+            settings.ManualRouting);
         string report = diagnosticReportService.CreateTextReport(snapshot);
         string? path = await diagnosticFileExporter.ExportAsync(report);
         LastExportMessage = path is null
@@ -1948,45 +2032,209 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
             : $"Rapport exporté : {Path.GetFileName(path)}";
     }
 
-    private async void OnSpotifyTimerTick(object? sender, EventArgs eventArgs)
+    private async void OnApplicationTimerTick(object? sender, EventArgs eventArgs)
     {
-        await RefreshSpotifyAsync();
+        await RefreshApplicationsAsync();
     }
 
-    private async Task RefreshSpotifyAsync()
+    private async Task RefreshApplicationsAsync()
     {
-        if (Interlocked.Exchange(ref spotifyRefreshInProgress, 1) != 0)
+        if (Interlocked.Exchange(ref applicationRefreshInProgress, 1) != 0)
         {
             return;
         }
 
         try
         {
-            IReadOnlyList<SpotifyProcessInfo> processes =
-                await spotifyDetector.DetectAsync();
+            ManualRoutingSettings routing = settings.ManualRouting;
+            AudioApplicationKind[] monitoredKinds = Enum
+                .GetValues<AudioApplicationKind>()
+                .Where(kind => kind != AudioApplicationKind.Custom)
+                .ToArray();
+            IReadOnlyList<DetectedAudioApplicationProcess> monitoredProcesses =
+                await applicationProcessDetector.DetectAsync(
+                    monitoredKinds,
+                    routing.CustomProcessNames);
+            var snapshot = new AudioApplicationDetectionSnapshot(
+                monitoredProcesses,
+                routing.SelectedApplications);
+
+            ApplicationDetectionAvailable = true;
+
+            DetectedApplicationProcesses.Clear();
+            foreach (DetectedAudioApplicationProcess process in snapshot.SelectedProcesses)
+            {
+                DetectedApplicationProcesses.Add(process);
+            }
+
+            foreach (AudioApplicationOptionViewModel option in RoutedApplicationOptions)
+            {
+                option.SetRunningInstanceCount(
+                    snapshot.GetRunningInstanceCount(option.Kind));
+            }
+
+            SpotifyProcessInfo[] processes = snapshot.MonitoredProcesses
+                .Where(process =>
+                    process.ApplicationKind == AudioApplicationKind.Spotify)
+                .Select(process => new SpotifyProcessInfo(
+                    process.ProcessId,
+                    process.ProcessName,
+                    process.StartedAt,
+                    process.Distribution))
+                .ToArray();
             SpotifyProcesses.Clear();
             foreach (SpotifyProcessInfo process in processes)
             {
                 SpotifyProcesses.Add(process);
             }
 
-            SpotifyDetected = processes.Count > 0;
+            SpotifyDetected = processes.Length > 0;
             applicationState.SetSpotifyProcesses(processes);
             OnPropertyChanged(nameof(SpotifyStatusText));
             OnPropertyChanged(nameof(DiagnosticSpotifyText));
+            OnPropertyChanged(nameof(RoutedApplicationsStatusText));
+            OnPropertyChanged(nameof(DiagnosticRoutedApplicationsText));
         }
         catch (Exception exception) when (
             exception is InvalidOperationException
-            or System.ComponentModel.Win32Exception)
+            or System.ComponentModel.Win32Exception
+            or NotSupportedException)
         {
-            logger.LogWarning(exception, "La détection Spotify a échoué.");
-            errorSink.Report("Spotify", "La détection des processus a échoué.");
+            logger.LogWarning(exception, "La détection des applications audio a échoué.");
+            errorSink.Report(
+                "Applications audio",
+                "La détection des processus sélectionnés a échoué.");
+            ApplicationDetectionAvailable = false;
+            DetectedApplicationProcesses.Clear();
+            SpotifyProcesses.Clear();
+            SpotifyDetected = false;
+            applicationState.SetSpotifyProcesses([]);
+            foreach (AudioApplicationOptionViewModel option in RoutedApplicationOptions)
+            {
+                option.SetDetectionUnavailable();
+            }
+
+            OnPropertyChanged(nameof(SpotifyStatusText));
+            OnPropertyChanged(nameof(DiagnosticSpotifyText));
+            OnPropertyChanged(nameof(RoutedApplicationsStatusText));
+            OnPropertyChanged(nameof(DiagnosticRoutedApplicationsText));
             OnPropertyChanged(nameof(DiagnosticErrorsText));
         }
         finally
         {
-            Volatile.Write(ref spotifyRefreshInProgress, 0);
+            Volatile.Write(ref applicationRefreshInProgress, 0);
         }
+    }
+
+    private void OnRoutedApplicationSelectionChanged(
+        AudioApplicationOptionViewModel changedOption)
+    {
+        if (suppressSettingsChanges)
+        {
+            return;
+        }
+
+        if (!RoutedApplicationOptions.Any(option => option.IsSelected)
+            && CustomProcessNames.Count == 0)
+        {
+            changedOption.SetSelectedWithoutNotification(true);
+            ShowNotification(
+                UiNotificationSeverity.Warning,
+                "Sélection de routage",
+                "Conservez au moins une application ou un processus personnalisé.");
+            return;
+        }
+
+        UpdateManualRoutingSettings();
+    }
+
+    private void AddCustomProcess()
+    {
+        if (!AudioApplicationProcessName.TryNormalize(
+                CustomProcessNameInput,
+                out string normalized))
+        {
+            ShowNotification(
+                UiNotificationSeverity.Warning,
+                "Processus personnalisé",
+                "Saisissez uniquement un nom de processus, par exemple vlc ou tidal.exe. Spotify Booster lui-même est refusé.");
+            return;
+        }
+
+        if (CustomProcessNames.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+        {
+            ShowNotification(
+                UiNotificationSeverity.Info,
+                "Processus personnalisé",
+                $"{normalized}.exe est déjà sélectionné.");
+            return;
+        }
+
+        if (AudioApplicationProcessName.TryGetBuiltInApplicationKind(
+                normalized,
+                out AudioApplicationKind builtInKind))
+        {
+            string displayName = RoutedApplicationOptions
+                .First(option => option.Kind == builtInKind)
+                .DisplayName;
+            ShowNotification(
+                UiNotificationSeverity.Info,
+                "Processus personnalisé",
+                $"{displayName} possède déjà une sélection dédiée.");
+            return;
+        }
+
+        if (CustomProcessNames.Count >= 16)
+        {
+            ShowNotification(
+                UiNotificationSeverity.Warning,
+                "Processus personnalisé",
+                "La limite de seize processus personnalisés est atteinte.");
+            return;
+        }
+
+        CustomProcessNames.Add(normalized);
+        CustomProcessNameInput = string.Empty;
+        UpdateManualRoutingSettings();
+    }
+
+    private void RemoveCustomProcess(object? parameter)
+    {
+        if (parameter is not string processName
+            || !CustomProcessNames.Contains(processName))
+        {
+            return;
+        }
+
+        if (!RoutedApplicationOptions.Any(option => option.IsSelected)
+            && CustomProcessNames.Count == 1)
+        {
+            ShowNotification(
+                UiNotificationSeverity.Warning,
+                "Sélection de routage",
+                "Conservez au moins une application ou un processus personnalisé.");
+            return;
+        }
+
+        _ = CustomProcessNames.Remove(processName);
+        UpdateManualRoutingSettings();
+    }
+
+    private void UpdateManualRoutingSettings()
+    {
+        var routing = new ManualRoutingSettings
+        {
+            SelectedApplications = RoutedApplicationOptions
+                .Where(option => option.IsSelected)
+                .Select(option => option.Kind)
+                .ToArray(),
+            CustomProcessNames = CustomProcessNames.ToArray(),
+        };
+        UpdateSettings(settings with { ManualRouting = routing });
+        OnPropertyChanged(nameof(SelectedApplicationNamesText));
+        OnPropertyChanged(nameof(RoutedApplicationsStatusText));
+        OnPropertyChanged(nameof(ManualRoutingInstructionText));
+        _ = RefreshApplicationsAsync();
     }
 
     private void ApplyProtectionMode(AudioProtectionMode mode)
@@ -2017,6 +2265,8 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
             },
             _ => processing with
             {
+                MainGainDb = AudioProcessingSettings.QuantizeRawExpertGain(
+                    processing.MainGainDb),
                 CompressorEnabled = false,
                 SoftClipperEnabled = false,
                 LimiterEnabled = false,
@@ -2399,6 +2649,18 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         notificationsEnabled = settings.NotificationsEnabled;
         globalHotkeysEnabled = settings.Hotkeys.GlobalHotkeysEnabled;
         detailedDiagnostics = settings.DetailedDiagnostics;
+        foreach (AudioApplicationOptionViewModel option in RoutedApplicationOptions)
+        {
+            option.SetSelectedWithoutNotification(
+                settings.ManualRouting.SelectedApplications.Contains(option.Kind));
+        }
+
+        CustomProcessNames.Clear();
+        foreach (string processName in settings.ManualRouting.CustomProcessNames)
+        {
+            CustomProcessNames.Add(processName);
+        }
+
         selectedProfile = settings.Profiles
             .FirstOrDefault(profile => HasSameBassSettings(
                 profile.Processing,
@@ -2433,7 +2695,6 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(LimiterReleaseMs));
         OnPropertyChanged(nameof(OutputGainDb));
         OnPropertyChanged(nameof(ParameterSmoothingMs));
-        OnPropertyChanged(nameof(ExpertMaximumGainDb));
         OnPropertyChanged(nameof(HeadphonesSafetyMode));
         OnPropertyChanged(nameof(StartWithWindows));
         OnPropertyChanged(nameof(StartMinimized));
@@ -2451,6 +2712,9 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(ToggleWindowHotkey));
         OnPropertyChanged(nameof(ShowLinearPercent));
         OnPropertyChanged(nameof(DetailedDiagnostics));
+        OnPropertyChanged(nameof(SelectedApplicationNamesText));
+        OnPropertyChanged(nameof(RoutedApplicationsStatusText));
+        OnPropertyChanged(nameof(ManualRoutingInstructionText));
         OnPropertyChanged(nameof(SelectedProfile));
         OnPropertyChanged(nameof(LimiterStatusText));
         OnPropertyChanged(nameof(DiagnosticPipelineText));
@@ -2462,6 +2726,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(ProtectionModeText));
         OnPropertyChanged(nameof(ProtectionModeDescription));
         OnPropertyChanged(nameof(GainMaximumDb));
+        OnPropertyChanged(nameof(GainStepDb));
         OnPropertyChanged(nameof(OutputGainDb));
         OnPropertyChanged(nameof(SafetyWarningText));
         OnPropertyChanged(nameof(HasSafetyWarning));

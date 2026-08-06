@@ -1,5 +1,7 @@
 namespace SpotifyBooster.Core.Configuration;
 
+using SpotifyBooster.Core.Models;
+
 public sealed record SettingsValidationResult(AppSettings Settings, IReadOnlyList<string> Errors)
 {
     public bool IsValid => Errors.Count == 0;
@@ -30,14 +32,8 @@ public static class SettingsValidator
         ValidateDeviceId(settings.SourceDeviceId, nameof(settings.SourceDeviceId), errors);
         ValidateDeviceId(settings.OutputDeviceId, nameof(settings.OutputDeviceId), errors);
         ValidateProcessing(settings.Processing, "Processing", errors);
+        ValidateManualRouting(settings.ManualRouting, errors);
         ValidateHotkeys(settings.Hotkeys, errors);
-        if (settings.Processing?.Mode == AudioProtectionMode.RawExpert
-            && !settings.ExpertModeAcknowledged)
-        {
-            errors.Add(
-                "Le mode Expert brut exige un acquittement explicite avant son activation.");
-        }
-
         if (settings.Profiles is null)
         {
             errors.Add("Profiles ne peut pas être nul.");
@@ -48,27 +44,31 @@ public static class SettingsValidator
         }
 
         var profileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (AudioProfileSettings? profile in settings.Profiles ?? [])
+        IReadOnlyList<AudioProfileSettings> profiles = settings.Profiles ?? [];
+        for (int profileIndex = 0; profileIndex < profiles.Count; profileIndex++)
         {
+            AudioProfileSettings? profile = profiles[profileIndex];
+            string profilePrefix = $"Profiles[{profileIndex}]";
             if (profile is null)
             {
-                errors.Add("Un profil ne peut pas être nul.");
+                errors.Add($"{profilePrefix} ne peut pas être nul.");
                 continue;
             }
 
             if (string.IsNullOrWhiteSpace(profile.Name) || profile.Name.Length > 64)
             {
-                errors.Add("Chaque profil doit avoir un nom de 1 à 64 caractères.");
+                errors.Add($"{profilePrefix}.Name doit contenir de 1 à 64 caractères.");
             }
             else if (!profileNames.Add(profile.Name))
             {
-                errors.Add($"Le profil « {profile.Name} » est dupliqué.");
+                errors.Add($"{profilePrefix}.Name est dupliqué.");
             }
 
-            ValidateProcessing(profile.Processing, $"Profiles[{profile.Name}]", errors);
+            ValidateProcessing(profile.Processing, $"{profilePrefix}.Processing", errors);
         }
 
         if (settings.Processing is null
+            || settings.ManualRouting is null
             || settings.Hotkeys is null
             || settings.Profiles is null
             || settings.Profiles.Any(profile => profile is null || profile.Processing is null))
@@ -93,6 +93,83 @@ public static class SettingsValidator
             };
 
         return new(safeSettings, errors);
+    }
+
+    private static void ValidateManualRouting(
+        ManualRoutingSettings? routing,
+        List<string> errors)
+    {
+        if (routing is null)
+        {
+            errors.Add("ManualRouting ne peut pas être nul.");
+            return;
+        }
+
+        if (routing.SelectedApplications is null)
+        {
+            errors.Add("ManualRouting.SelectedApplications ne peut pas être nul.");
+            return;
+        }
+
+        if (routing.CustomProcessNames is null)
+        {
+            errors.Add("ManualRouting.CustomProcessNames ne peut pas être nul.");
+            return;
+        }
+
+        if (routing.SelectedApplications.Count > 7)
+        {
+            errors.Add("Au maximum sept applications intégrées peuvent être sélectionnées.");
+        }
+
+        var selectedApplications = new HashSet<AudioApplicationKind>();
+        foreach (AudioApplicationKind application in routing.SelectedApplications)
+        {
+            if (!Enum.IsDefined(application)
+                || application == AudioApplicationKind.Custom)
+            {
+                errors.Add("ManualRouting.SelectedApplications contient une application inconnue.");
+                continue;
+            }
+
+            if (!selectedApplications.Add(application))
+            {
+                errors.Add("ManualRouting.SelectedApplications contient un doublon.");
+            }
+        }
+
+        if (routing.CustomProcessNames.Count > 16)
+        {
+            errors.Add("Au maximum seize processus personnalisés peuvent être sélectionnés.");
+        }
+
+        var customProcessNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string? processName in routing.CustomProcessNames)
+        {
+            if (!AudioApplicationProcessName.TryNormalize(processName, out string normalized)
+                || !string.Equals(processName, normalized, StringComparison.Ordinal))
+            {
+                errors.Add("ManualRouting.CustomProcessNames contient un nom de processus invalide ou non normalisé.");
+                continue;
+            }
+
+            if (AudioApplicationProcessName.TryGetBuiltInApplicationKind(normalized, out _))
+            {
+                errors.Add("ManualRouting.CustomProcessNames contient une application intégrée ; utilisez sa sélection dédiée.");
+                continue;
+            }
+
+            if (!customProcessNames.Add(normalized))
+            {
+                errors.Add("ManualRouting.CustomProcessNames contient un doublon.");
+            }
+        }
+
+        if (routing.SelectedApplications.Count == 0
+            && routing.CustomProcessNames.Count == 0)
+        {
+            errors.Add("Sélectionnez au moins une application ou un processus à router.");
+        }
     }
 
     private static void ValidateEnum<T>(T value, string field, List<string> errors)
@@ -278,14 +355,8 @@ public static class SettingsValidator
 
         ValidateEnum(processing.Mode, $"{prefix}.Mode", errors);
         ValidateEnum(processing.BassProfile, $"{prefix}.BassProfile", errors);
-        ValidateFiniteRange(
-            processing.ExpertMaximumGainDb,
-            AudioProcessingSettings.MinimumExpertMaximumGainDb,
-            AudioProcessingSettings.ArchitecturalMaximumGainDb,
-            $"{prefix}.ExpertMaximumGainDb",
-            errors);
         double allowedGain = processing.Mode == AudioProtectionMode.RawExpert
-            ? processing.ExpertMaximumGainDb
+            ? AudioProcessingSettings.RawExpertMaximumGainDb
             : AudioProcessingSettings.StandardMaximumGainDb;
         ValidateFiniteRange(
             processing.MainGainDb,
@@ -293,6 +364,13 @@ public static class SettingsValidator
             allowedGain,
             $"{prefix}.MainGainDb",
             errors);
+        if (processing.Mode == AudioProtectionMode.RawExpert
+            && double.IsFinite(processing.MainGainDb)
+            && processing.MainGainDb * 2d
+                != Math.Truncate(processing.MainGainDb * 2d))
+        {
+            errors.Add($"{prefix}.MainGainDb doit être aligné sur la grille de 0,5 dB.");
+        }
         ValidateFiniteRange(processing.BassFrequencyHz, 35, 200, $"{prefix}.BassFrequencyHz", errors);
         ValidateFiniteRange(processing.BassGainDb, 0, 18, $"{prefix}.BassGainDb", errors);
         ValidateFiniteRange(processing.BassSlope, 0.25, 2, $"{prefix}.BassSlope", errors);
