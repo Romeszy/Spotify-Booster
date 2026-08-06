@@ -2,10 +2,14 @@
 
 ## Frontière du produit
 
-Spotify Booster isole Spotify par routage Windows manuel vers un endpoint virtuel. La détection du processus Spotify renseigne l’interface ; elle ne prouve jamais l’origine du signal audio.
+Spotify Booster traite un endpoint virtuel alimenté par routage Windows manuel.
+Spotify reste le choix initial, mais l’interface peut aussi guider Discord,
+Chrome, Edge, Opera GX, Firefox, Brave et des processus personnalisés. La
+sélection et la détection des processus renseignent l’interface ; elles ne
+modifient pas le mélangeur Windows et ne prouvent jamais l’origine du signal.
 
 ```text
-Spotify Desktop
+sorties des applications choisies dans Windows
   → endpoint de rendu du câble virtuel
   → endpoint de capture correspondant
   → SpotifyBooster.Audio
@@ -13,7 +17,11 @@ Spotify Desktop
   → endpoint de rendu physique
 ```
 
-L’application ne change ni le périphérique Windows par défaut, ni le volume principal, ni le volume de session Spotify.
+L’application ne change ni le périphérique Windows par défaut, ni le volume
+principal, ni le volume d’une session applicative. Le moteur traite le mix
+complet réellement présent sur le câble. Il ne sépare pas un utilisateur ou un
+bot Discord, ni un onglet de navigateur. Discord n’entre dans cette route que
+par sa sortie audio ; le microphone reste hors du pipeline.
 
 ## Projets
 
@@ -23,7 +31,7 @@ L’application ne change ni le périphérique Windows par défaut, ni le volume
 | `SpotifyBooster.Contracts` | `net8.0` | contrats Auth, API, entitlements et updates sans WPF |
 | `SpotifyBooster.Core` | `net8.0` | abstractions, modèles, réglages V3, validation et état global |
 | `SpotifyBooster.Audio` | `net8.0-windows10.0.19041.0` | NAudio/WASAPI, endpoints, tampon, formats, resampling et cycle du moteur |
-| `SpotifyBooster.Infrastructure` | `net8.0-windows10.0.19041.0` | JSON, migration V1, logs, diagnostic, processus Spotify, registre et URI Windows |
+| `SpotifyBooster.Infrastructure` | `net8.0-windows10.0.19041.0` | JSON, migrations V1/V2, logs, diagnostic, détection des processus audio, registre et URI Windows |
 | `SpotifyBooster.Dsp` | `net8.0` | DSP pur, sans dépendance WPF ou NAudio |
 | `SpotifyBooster.Auth` | `net8.0` | adaptateur Supabase Auth, session en mémoire |
 | `SpotifyBooster.Api` | `net8.0` | API ASP.NET Core, JWT/JWKS, Data API et readiness |
@@ -78,7 +86,9 @@ Il n’existe aucune boucle de réduction persistante du gain. Le lissage rejoin
 - `IAudioDeviceService` : inventaire capture/rendu et résolution fraîche par ID ;
 - `ISettingsService` : chargement, migration, validation et sauvegarde ;
 - `IStartupService` : vérification et écriture du démarrage utilisateur ;
-- `ISpotifyProcessDetector` : snapshot des processus sans chemin fixe ;
+- `IAudioApplicationProcessDetector` : snapshot des familles intégrées et des
+  noms de processus personnalisés, sans changer leur route audio ;
+- `ISpotifyProcessDetector` : contrat historique de snapshot Spotify ;
 - `IErrorSink` et `IDiagnosticReportService` : erreurs bornées et export expurgé ;
 - `ApplicationState` : état thread-safe indépendant de WPF.
 
@@ -94,7 +104,7 @@ Les frontières commerciales sont détaillées dans
 | Tâches de cycle de vie | créent, arrêtent et libèrent les objets audio hors UI |
 | Dispatcher WPF | commandes, propriétés liées et lecture des métriques à 10 Hz |
 | Logger asynchrone | écrit transitions et erreurs via un canal borné |
-| Boucle UI Spotify | actualise les processus toutes les deux secondes |
+| Boucle UI applications | actualise les processus sélectionnés toutes les deux secondes |
 
 Les callbacks audio ne lisent aucun fichier et n’accèdent pas à WPF. Les réglages DSP sont préparés hors callback, publiés par échange atomique et appliqués au bloc suivant. `DspSampleProvider.Read` reste sans allocation, y compris au premier bloc après une mise à jour ou une panique. Il publie un snapshot valeur ; un timer moteur distinct construit et diffuse les objets de métriques hors callback.
 
@@ -140,13 +150,20 @@ Emplacement standard :
 
 Si un fichier vide nommé `portable.mode` se trouve à côté de l’exécutable, les réglages sont stockés dans `Data\settings.json` et les logs dans `Data\logs` sous le dossier de l’application.
 
-Le schéma courant est V2. Lorsqu’un fichier V1 valide est chargé :
+Le schéma courant est V3. Lorsqu’un fichier V1 valide est chargé, la migration
+V1 vers V2 :
 
 1. `GainPercent` est limité à `100–500` ;
 2. la valeur est convertie en dB par `20 × log10(percent/100)` ;
 3. le mode devient Protégé si l’ancien limiteur était actif, sinon Direct ;
 4. une sauvegarde unique `settings.schema1.backup.json` est créée ;
-5. le fichier principal est réécrit au format V2.
+5. le fichier principal est réécrit, puis migré au format V3.
+
+V3 ajoute notamment `ManualRouting` : Spotify seul est sélectionné par défaut,
+les sept familles intégrées sont dédupliquées et au plus seize noms de
+processus personnalisés normalisés sont acceptés. Au moins une sélection doit
+rester active. Cette configuration pilote l’assistant et la détection, jamais
+le routage Windows ni le contenu du câble.
 
 Le JSON est limité à 1 MiB et à une profondeur de 16. Les propriétés inconnues, commentaires, virgules finales, nœuds structuraux `null` et valeurs hors plage sont refusés. Une configuration invalide ramène les réglages sûrs par défaut.
 
@@ -154,13 +171,17 @@ Le JSON est limité à 1 MiB et à une profondeur de 16. Les propriétés inconn
 
 NAudio 2.3.0 fournit WASAPI et le resampler WDL. Les bibliothèques Microsoft.Extensions 10.0.10 prennent en charge `net8.0`. Les versions sont centralisées et verrouillées. `RuntimeIdentifiers` fixe `win-x64`, dont les graphes sont consignés dans les fichiers de lock.
 
-.NET 8 atteint sa fin de support le 10 novembre 2026. L’architecture reste sur .NET 8 pour cette V2 ; la migration de maintenance doit être planifiée séparément. Voir [Licences tierces](../THIRD_PARTY_NOTICES.md).
+.NET 8 atteint sa fin de support le 10 novembre 2026. L’architecture reste sur
+.NET 8 pour la version `0.2.1` ; la migration de maintenance doit être
+planifiée séparément. Voir [Licences tierces](../THIRD_PARTY_NOTICES.md).
 
 ## Hors frontière
 
 - aucune API réseau, télémétrie ou mise à jour automatique ;
 - aucun pilote, APO, service Windows ou modification automatique de route ;
 - aucun traitement exclusif par PID ;
+- aucune isolation d’un participant ou bot Discord, d’un onglet de navigateur
+  ou d’une application déjà mélangée sur le câble ;
 - aucun limiteur true-peak ou look-ahead ;
 - aucune mesure SPL ;
 - aucun artefact signé revendiqué tant que la checklist de release n’est pas clôturée.

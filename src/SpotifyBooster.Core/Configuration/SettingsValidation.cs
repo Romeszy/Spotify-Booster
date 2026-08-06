@@ -1,5 +1,7 @@
 namespace SpotifyBooster.Core.Configuration;
 
+using SpotifyBooster.Core.Models;
+
 public sealed record SettingsValidationResult(AppSettings Settings, IReadOnlyList<string> Errors)
 {
     public bool IsValid => Errors.Count == 0;
@@ -30,6 +32,7 @@ public static class SettingsValidator
         ValidateDeviceId(settings.SourceDeviceId, nameof(settings.SourceDeviceId), errors);
         ValidateDeviceId(settings.OutputDeviceId, nameof(settings.OutputDeviceId), errors);
         ValidateProcessing(settings.Processing, "Processing", errors);
+        ValidateManualRouting(settings.ManualRouting, errors);
         ValidateHotkeys(settings.Hotkeys, errors);
         if (settings.Profiles is null)
         {
@@ -65,6 +68,7 @@ public static class SettingsValidator
         }
 
         if (settings.Processing is null
+            || settings.ManualRouting is null
             || settings.Hotkeys is null
             || settings.Profiles is null
             || settings.Profiles.Any(profile => profile is null || profile.Processing is null))
@@ -89,6 +93,83 @@ public static class SettingsValidator
             };
 
         return new(safeSettings, errors);
+    }
+
+    private static void ValidateManualRouting(
+        ManualRoutingSettings? routing,
+        List<string> errors)
+    {
+        if (routing is null)
+        {
+            errors.Add("ManualRouting ne peut pas être nul.");
+            return;
+        }
+
+        if (routing.SelectedApplications is null)
+        {
+            errors.Add("ManualRouting.SelectedApplications ne peut pas être nul.");
+            return;
+        }
+
+        if (routing.CustomProcessNames is null)
+        {
+            errors.Add("ManualRouting.CustomProcessNames ne peut pas être nul.");
+            return;
+        }
+
+        if (routing.SelectedApplications.Count > 7)
+        {
+            errors.Add("Au maximum sept applications intégrées peuvent être sélectionnées.");
+        }
+
+        var selectedApplications = new HashSet<AudioApplicationKind>();
+        foreach (AudioApplicationKind application in routing.SelectedApplications)
+        {
+            if (!Enum.IsDefined(application)
+                || application == AudioApplicationKind.Custom)
+            {
+                errors.Add("ManualRouting.SelectedApplications contient une application inconnue.");
+                continue;
+            }
+
+            if (!selectedApplications.Add(application))
+            {
+                errors.Add("ManualRouting.SelectedApplications contient un doublon.");
+            }
+        }
+
+        if (routing.CustomProcessNames.Count > 16)
+        {
+            errors.Add("Au maximum seize processus personnalisés peuvent être sélectionnés.");
+        }
+
+        var customProcessNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string? processName in routing.CustomProcessNames)
+        {
+            if (!AudioApplicationProcessName.TryNormalize(processName, out string normalized)
+                || !string.Equals(processName, normalized, StringComparison.Ordinal))
+            {
+                errors.Add("ManualRouting.CustomProcessNames contient un nom de processus invalide ou non normalisé.");
+                continue;
+            }
+
+            if (AudioApplicationProcessName.TryGetBuiltInApplicationKind(normalized, out _))
+            {
+                errors.Add("ManualRouting.CustomProcessNames contient une application intégrée ; utilisez sa sélection dédiée.");
+                continue;
+            }
+
+            if (!customProcessNames.Add(normalized))
+            {
+                errors.Add("ManualRouting.CustomProcessNames contient un doublon.");
+            }
+        }
+
+        if (routing.SelectedApplications.Count == 0
+            && routing.CustomProcessNames.Count == 0)
+        {
+            errors.Add("Sélectionnez au moins une application ou un processus à router.");
+        }
     }
 
     private static void ValidateEnum<T>(T value, string field, List<string> errors)

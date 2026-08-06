@@ -5,12 +5,20 @@ une source audio virtuelle, applique un traitement DSP local en temps réel,
 puis envoie le résultat vers un casque ou des enceintes.
 
 ```text
-Spotify → câble audio virtuel → Spotify Booster → sortie physique
+applications choisies → câble audio virtuel → Spotify Booster → sortie physique
 ```
 
-L’isolation de Spotify dépend du routage manuel dans le mélangeur Windows.
-L’application ne capture pas un flux par PID et traite toute application
-envoyée vers la même source virtuelle.
+Spotify reste sélectionné par défaut. L’assistant sait aussi guider Discord,
+Google Chrome, Microsoft Edge, Opera GX, Mozilla Firefox, Brave et jusqu’à
+seize noms de processus personnalisés. Cette sélection ne change aucun réglage
+Windows : elle indique quels processus surveiller et quoi router manuellement
+dans le mélangeur de volume.
+
+L’application ne capture pas un flux par PID. Elle traite tout signal réellement
+présent sur la source virtuelle, même s’il vient d’une application non cochée.
+Elle ne peut donc isoler ni une personne ou un bot dans Discord, ni un onglet
+dans un navigateur. Pour Discord, routez uniquement sa **sortie** vers le câble ;
+le microphone doit rester sur son périphérique d’entrée habituel.
 
 > **Avertissement audio**
 >
@@ -36,17 +44,22 @@ La Phase A ne fournit pas Stripe, abonnement Pro réel, écrans de compte WPF,
 stockage DPAPI, licence hors ligne, updater, mise à jour obligatoire,
 Authenticode, environnement de production ou release commerciale.
 
-La restauration verrouillée et le build Release des 13 projets réussissent
-avec `0` avertissement et `0` erreur. Le test complet de la solution réussit
-`366/366` :
+La version desktop courante est `0.2.1`. Le 6 août 2026, la restauration
+verrouillée et le build Release des 13 projets ont réussi avec `0`
+avertissement et `0` erreur. Le test .NET complet de la solution a réussi
+`415/415` :
 
-- desktop : Audio `27`, DSP `90` et Core `90` tests ;
-- fondation réseau : API `105/105` et Auth `54/54` tests ;
-- tooling backend : `24` tests Node avec une branche conditionnelle par OS ;
-  les cas TLS ont réussi sous WSL, les ACL réelles sous Windows, le lint a
-  réussi et l’audit npm trouve `0` vulnérabilité.
+- desktop : Audio `27`, DSP `90` et Core `139` tests ;
+- fondation réseau : API `105/105` et Auth `54/54` tests.
 
-La voie Supabase locale a également réussi le démarrage, le reset, le lint,
+Les tests Node ont réussi `23/24`, avec le seul scénario TLS propre à une autre
+plateforme explicitement ignoré, et le lint backend a réussi. Les audits frais
+NuGet et npm production ne signalent aucune vulnérabilité. Les gates Supabase
+n’ont pas été rejoués pour cette vérification `0.2.1` ; les preuves détaillées
+plus bas restent celles de Phase A.
+
+La preuve Phase A antérieure a également couvert le démarrage Supabase local,
+le reset, le lint,
 `111/111` assertions pgTAP, la preuve d’atomicité du runner et l’E2E Auth/API
 TLS complet. Le gate démarre le vrai processus ASP.NET, traverse `/v1/me` avec
 deux utilisateurs, rotation/rejeu refresh, logout, panne puis récupération
@@ -54,8 +67,9 @@ readiness. Le JWKS a été lu avec `curl --cacert`. Ces preuves ont été obtenu
 sous WSL avec CA explicite, puis stack, API et données jetables ont été
 supprimées.
 
-L’audit NuGet ne trouve aucune vulnérabilité. L’audit des packages dépréciés
-signale cependant `Microsoft.NETCore.Platforms` et
+Lors de cette preuve antérieure, l’audit NuGet ne trouvait aucune
+vulnérabilité. L’audit des packages dépréciés signalait cependant
+`Microsoft.NETCore.Platforms` et
 `System.Security.AccessControl` `5.0.0`, ainsi que
 `System.Diagnostics.DiagnosticSource` `5.0.0` sur les tests DSP/Auth/API, tous
 transitifs via la chaîne xUnit. Cet avertissement amont est détaillé dans
@@ -68,7 +82,8 @@ transitifs via la chaîne xUnit. Cet avertissement amont est détaillé dans
   limiteur modulaires ;
 - vu-mètres, clipping, réduction dynamique et diagnostic exportable ;
 - sélection de la source virtuelle et de la sortie physique ;
-- détection informative des processus Spotify ;
+- sélection guidée et détection informative de Spotify, Discord, Chrome, Edge,
+  Opera GX, Firefox, Brave et de processus personnalisés ;
 - assistant de routage, tray, raccourcis globaux et démarrage utilisateur ;
 - réglages JSON locaux, sauvegarde atomique et migrations V1/V2 vers V3.
 
@@ -78,7 +93,8 @@ historique. Seul Expert brut utilise la grille `0,5 dB` et le plafond `+75 dB`.
 ## Prérequis desktop
 
 - Windows 10 version 2004 ou ultérieure, ou Windows 11 ;
-- Spotify Desktop ;
+- au moins une application audio à router ; Spotify Desktop est le choix par
+  défaut de l’assistant ;
 - un câble audio virtuel compatible installé séparément ;
 - SDK .NET `8.0.423` pour compiler.
 
@@ -105,7 +121,9 @@ prérequis de commercialisation.
 ```
 
 Au premier démarrage, conservez `0 dB` en mode Protégé. Configurez le câble
-virtuel avant d’activer le moteur.
+virtuel avant d’activer le moteur. Consultez
+[Installation et routage](docs/INSTALLATION.md) pour le test manuel
+multi-application et la procédure de mise à jour d’une installation existante.
 
 ## Backend local Phase A
 
@@ -161,6 +179,12 @@ de Stripe, de la validité, de la grâce ou du feature gating, tous différés.
 ## Limites importantes
 
 - aucun trafic réseau n’est nécessaire au moteur audio actuel ;
+- l’application ne modifie pas le routage Windows et ne peut pas vérifier que
+  la sélection affichée correspond au mix réellement présent sur le câble ;
+- Discord est traité comme une sortie complète, jamais comme une entrée micro ;
+  aucune personne ni aucun bot n’est isolable ;
+- un navigateur est traité comme une sortie complète ; aucun onglet n’est
+  isolable ;
 - l’adaptateur Auth et l’API ne sont pas branchés à l’interface WPF en Phase A ;
 - aucun refresh token n’est persisté ;
 - aucune écriture d’entitlement n’est exposée aux utilisateurs ;

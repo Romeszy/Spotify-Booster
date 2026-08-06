@@ -5,6 +5,7 @@
 - aucun secret privilégié requis dans le desktop ;
 - aucun téléchargement ou installation silencieuse de pilote ;
 - aucune élévation de privilège pour l’application ;
+- aucune modification automatique du routage ou des volumes de session Windows ;
 - aucun trafic réseau dans le callback audio ;
 - JWT limités à `RS256`/`ES256` et validation fail-closed ;
 - amorçage JWKS obligatoire au démarrage et groupe `/v1` default-deny ;
@@ -77,6 +78,18 @@ hors mode Protégé et placé avant le gain de sortie.
 Le bouton panique ramène les gains DSP à `0 dB` avec une rampe courte. Il ne
 modifie pas le volume physique Windows.
 
+La sélection Spotify/Discord/navigateurs/processus personnalisés ne constitue
+pas une frontière de sécurité. Elle guide l’utilisateur et filtre les processus
+affichés ; le moteur traite tout signal réellement présent sur le câble,
+y compris une application non sélectionnée. Il n’existe aucun contrôle d’accès
+ou isolement par PID dans le pipeline audio.
+
+Pour Discord, seule la sortie complète doit être routée vers le câble. Le
+microphone doit rester sur son entrée physique ; Booster ne sépare pas une
+personne, un bot ou un salon. Pour Chrome, Edge, Opera GX, Firefox et Brave,
+aucun onglet n’est isolé. Un signal sensible envoyé par erreur vers le câble
+sera traité comme les autres et pourra être audible sur la sortie choisie.
+
 ## Base et RLS
 
 `anon` ne possède aucun droit sur les tables. Il peut uniquement utiliser le
@@ -100,9 +113,12 @@ npm audit --package-lock-only --audit-level=high
 Pop-Location
 ```
 
-Le gate actuel ne détecte aucune vulnérabilité NuGet ou npm. L’audit NuGet
-`--deprecated` signale néanmoins des dépendances transitives `5.0.0` héritées
-de `xunit.v3` `3.2.2` dans les projets de tests :
+La vérification `0.2.1` du 6 août 2026 ne détecte aucune vulnérabilité NuGet ni
+npm de production. Les tests Node réussissent `23/24`, avec un scénario TLS
+spécifique à une autre plateforme ignoré, et le lint backend réussit. Le gate
+Supabase complet n’a pas été rejoué. L’audit NuGet `--deprecated` frais signale
+néanmoins des dépendances transitives
+`5.0.0` héritées de `xunit.v3` `3.2.2` dans les projets de tests :
 `Microsoft.NETCore.Platforms`, `System.Security.AccessControl` et, pour les
 tests DSP/Auth/API, `System.Diagnostics.DiagnosticSource`. Il s’agit d’un
 avertissement amont à surveiller, pas d’une correction locale prouvée ; ne pas

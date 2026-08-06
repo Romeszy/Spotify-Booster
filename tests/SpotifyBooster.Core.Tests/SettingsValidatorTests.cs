@@ -1,4 +1,5 @@
 using SpotifyBooster.Core.Configuration;
+using SpotifyBooster.Core.Models;
 
 namespace SpotifyBooster.Core.Tests;
 
@@ -473,6 +474,144 @@ public sealed class SettingsValidatorTests
         Assert.Contains(
             result.Errors,
             error => error.Contains("dupliqué", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void DefaultManualRoutingSelectsOnlySpotify()
+    {
+        AppSettings settings = ValidCompletedSettings();
+
+        SettingsValidationResult result = SettingsValidator.Validate(settings);
+
+        Assert.True(result.IsValid, string.Join(" ", result.Errors));
+        Assert.Equal(
+            [AudioApplicationKind.Spotify],
+            result.Settings.ManualRouting.SelectedApplications);
+        Assert.Empty(result.Settings.ManualRouting.CustomProcessNames);
+    }
+
+    [Fact]
+    public void ManualRoutingAcceptsKnownApplicationsAndNormalizedCustomProcesses()
+    {
+        AppSettings settings = ValidCompletedSettings() with
+        {
+            ManualRouting = new ManualRoutingSettings
+            {
+                SelectedApplications =
+                [
+                    AudioApplicationKind.Spotify,
+                    AudioApplicationKind.Discord,
+                    AudioApplicationKind.Chrome,
+                ],
+                CustomProcessNames = ["tidal", "vlc"],
+            },
+        };
+
+        SettingsValidationResult result = SettingsValidator.Validate(settings);
+
+        Assert.True(result.IsValid, string.Join(" ", result.Errors));
+        Assert.Equal(settings, result.Settings);
+    }
+
+    [Theory]
+    [InlineData("SpotifyBooster.App")]
+    [InlineData("folder\\player")]
+    [InlineData("player.exe")]
+    [InlineData(" player ")]
+    public void ManualRoutingRejectsUnsafeOrNonCanonicalCustomProcessName(
+        string processName)
+    {
+        AppSettings settings = ValidCompletedSettings() with
+        {
+            ManualRouting = new ManualRoutingSettings
+            {
+                SelectedApplications = [AudioApplicationKind.Spotify],
+                CustomProcessNames = [processName],
+            },
+        };
+
+        SettingsValidationResult result = SettingsValidator.Validate(settings);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(
+            result.Errors,
+            error => error.Contains("non normalisé", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("Spotify")]
+    [InlineData("DiscordCanary")]
+    [InlineData("chrome")]
+    [InlineData("msedge")]
+    [InlineData("opera")]
+    [InlineData("firefox")]
+    [InlineData("brave")]
+    public void ManualRoutingRejectsBuiltInApplicationAsCustomProcess(
+        string processName)
+    {
+        AppSettings settings = ValidCompletedSettings() with
+        {
+            ManualRouting = new ManualRoutingSettings
+            {
+                SelectedApplications = [AudioApplicationKind.Spotify],
+                CustomProcessNames = [processName],
+            },
+        };
+
+        SettingsValidationResult result = SettingsValidator.Validate(settings);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(
+            result.Errors,
+            error => error.Contains("application intégrée", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ManualRoutingRejectsDuplicatesAndCustomEnumMarker()
+    {
+        AppSettings settings = ValidCompletedSettings() with
+        {
+            ManualRouting = new ManualRoutingSettings
+            {
+                SelectedApplications =
+                [
+                    AudioApplicationKind.Discord,
+                    AudioApplicationKind.Discord,
+                    AudioApplicationKind.Custom,
+                ],
+                CustomProcessNames = ["tidal", "TIDAL"],
+            },
+        };
+
+        SettingsValidationResult result = SettingsValidator.Validate(settings);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(
+            result.Errors,
+            error => error.Contains("application inconnue", StringComparison.Ordinal));
+        Assert.True(
+            result.Errors.Count(error =>
+                error.Contains("doublon", StringComparison.Ordinal)) >= 2);
+    }
+
+    [Fact]
+    public void ManualRoutingRequiresAtLeastOneSelectedSource()
+    {
+        AppSettings settings = ValidCompletedSettings() with
+        {
+            ManualRouting = new ManualRoutingSettings
+            {
+                SelectedApplications = [],
+                CustomProcessNames = [],
+            },
+        };
+
+        SettingsValidationResult result = SettingsValidator.Validate(settings);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(
+            result.Errors,
+            error => error.Contains("au moins une", StringComparison.Ordinal));
     }
 
     private static AppSettings ValidCompletedSettings() =>

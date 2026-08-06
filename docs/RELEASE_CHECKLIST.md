@@ -15,6 +15,12 @@ et scan de secrets. L’API ciblée réussit `105/105`. Le total global .NET ré
 propres. L’audit NuGet remonte `0` vulnérabilité ; les transitifs de tests
 dépréciés `5.0.0` via xUnit restent documentés. La stack locale a été arrêtée.
 
+La vérification desktop `0.2.1` du 6 août 2026 réussit le build Release avec
+`0` avertissement/`0` erreur et `415/415` tests .NET. Les tests Node réussissent
+`23/24`, avec un scénario TLS de plateforme ignoré, et le lint réussit. Les
+audits frais NuGet et npm production ne signalent aucune vulnérabilité. Le
+transit audio matériel multi-application reste manuel et non validé ici.
+
 ## Source et dépendances
 
 - [ ] **Sign-off livraison :** worktree propre et commit identifié ;
@@ -95,8 +101,8 @@ permissif ne sont autorisés.
 - [x] NaN/Inf, overflow, silence, lissage et sample rates couverts ;
 - [x] callback audio sans réseau, fichier, verrou long ou allocation ;
 - [x] panique, débranchement et reconstruction testés ;
-- [ ] **Sign-off matériel :** transit réel Spotify → câble → Booster → sortie
-  testé manuellement ;
+- [ ] **Sign-off matériel :** transit réel d’une application sélectionnée →
+  câble → Booster → sortie testé manuellement ;
 - [ ] **Sign-off sécurité auditive :** casque testé à faible niveau uniquement.
 
 ## Documentation et livraison

@@ -2,7 +2,7 @@
 
 ## Surface implémentée
 
-La version applicative et les scripts de release utilisent `0.2.0` pour `win-x64`.
+La version applicative et les scripts de release utilisent `0.2.1` pour `win-x64`.
 
 | Fichier | Rôle |
 |---|---|
@@ -115,6 +115,8 @@ L’installateur :
 - crée le raccourci du menu Démarrer ;
 - propose un raccourci Bureau ;
 - propose le démarrage automatique utilisateur ;
+- présélectionne le démarrage automatique lors d’une mise à jour si l’entrée
+  installée correspond encore au binaire courant ;
 - écrit l’entrée de désinstallation sous HKCU ;
 - installe un désinstalleur ;
 - embarque `LICENSE.txt`, `THIRD_PARTY_NOTICES.md` et le dossier `licenses`.

@@ -1,4 +1,4 @@
-# Conception de l’interface V2
+# Conception de l’interface 0.2.1
 
 Ce document décrit l’interface WPF implémentée. `DESIGN.md` conserve la décision produit détaillée ; ce fichier sert de guide de maintenance pour le code actuel.
 
@@ -8,6 +8,8 @@ Ce document décrit l’interface WPF implémentée. `DESIGN.md` conserve la dé
 - l’état audio, le mode et la route restent visibles ;
 - les actions dangereuses sont explicites ;
 - aucune modification silencieuse des périphériques Windows ;
+- la sélection d’applications explique le routage manuel sans prétendre
+  contrôler le mix du câble ;
 - les contrôles fréquents restent accessibles depuis la fenêtre, le tray et les raccourcis ;
 - la densité est compacte sans sacrifier les libellés ou le focus clavier.
 
@@ -53,35 +55,57 @@ Sections :
 
 Les changements audio sont publiés immédiatement. Les préférences sont sauvegardées localement avec temporisation.
 
-Les champs de schéma `Theme`, `Density` et `ReduceAnimations` existent pour l’évolution, mais la V2 visible utilise le thème sombre et la densité compacte définis par les ressources XAML ; elle n’expose pas encore de sélecteur complet pour ces trois valeurs.
+Les champs de schéma `Theme`, `Density` et `ReduceAnimations` existent pour
+l’évolution, mais l’interface visible utilise le thème sombre et la densité
+compacte définis par les ressources XAML ; elle n’expose pas encore de
+sélecteur complet pour ces trois valeurs.
 
 ## Page Diagnostic
 
 La page présente :
 
 - état du moteur et formats ;
-- processus Spotify détectés ;
+- applications choisies, processus détectés et noms personnalisés ;
 - modules DSP et gains demandé/appliqué ;
 - niveaux aux étapes principales ;
 - charge, buffers, underruns, overruns, clips et durée ;
 - erreurs récentes ;
 - export texte explicite.
 
-Le mode **diagnostics détaillés** est sauvegardé, mais l’interface V2 affiche déjà les blocs principaux ; toute différence future doit être documentée et testée.
+Le mode **diagnostics détaillés** est sauvegardé, mais l’interface actuelle
+affiche déjà les blocs principaux ; toute différence future doit être
+documentée et testée.
 
 ## Assistant
 
 L’assistant en sept étapes explique avant d’agir :
 
-1. topologie Spotify → câble → Booster → sortie ;
+1. topologie applications choisies → câble → Booster → sortie ;
 2. installation externe de VB-CABLE ;
 3. présence de CABLE Input/CABLE Output ;
-4. routage manuel de Spotify ;
+4. choix de Spotify, Discord, Chrome, Edge, Opera GX, Firefox, Brave ou de
+   processus personnalisés, puis routage manuel dans Windows ;
 5. sélection de la route ;
 6. test à `0 dB` et panique ;
 7. dépannage et fin.
 
-L’assistant utilise une progression visible, Précédent/Suivant, et avertit lorsque la sélection de route est incomplète. Terminer l’assistant restaure le mode Protégé à `0 dB`.
+Spotify est coché par défaut. Chaque carte intégrée affiche le nom de processus
+attendu et son état détecté. Un champ permet d’ajouter jusqu’à seize noms de
+processus personnalisés, avec ou sans `.exe`; au moins une application ou un
+processus doit rester sélectionné.
+
+La sélection persiste dans `ManualRouting` et sert à la détection et au texte
+d’instruction. Elle n’appelle aucune API de routage de session Windows. La
+bannière de l’étape 4 rappelle donc que tout programme réellement envoyé vers
+CABLE Input sera amplifié, même s’il n’est pas coché.
+
+L’interface ne promet aucune granularité absente du pipeline : Discord désigne
+sa sortie complète, jamais le microphone, sans isolation de personne ou de bot ;
+un navigateur désigne sa sortie complète, sans isolation d’onglet.
+
+L’assistant utilise une progression visible, Précédent/Suivant, et avertit
+quand la sélection de route est incomplète. Terminer l’assistant restaure le
+mode Protégé à `0 dB`.
 
 ## Expert brut
 

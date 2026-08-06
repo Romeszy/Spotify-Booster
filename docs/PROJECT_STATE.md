@@ -1,6 +1,6 @@
 # État du projet
 
-Date de mise à jour : 29 juillet 2026.
+Date de mise à jour : 6 août 2026.
 
 ## Synthèse
 
@@ -10,22 +10,31 @@ base/RLS et DSP/V3 existent. Le schéma PostgreSQL Phase A est déployé sur le
 projet Supabase hébergé ; l’API applicative, SMTP, le domaine, les opérations
 de production et le paiement réel ne sont pas déployés.
 
+La version desktop `0.2.1` ajoute le guidage de routage manuel
+multi-application : Spotify reste sélectionné par défaut, avec Discord, Chrome,
+Edge, Opera GX, Firefox, Brave et des processus personnalisés disponibles.
+Cette sélection ne modifie pas Windows et ne filtre pas le contenu du câble.
+
 ## Opérationnel et vérifié par voie
 
 | Voie | Fonctionnalité | Preuve la plus récente |
 | --- | --- | --- |
 | Desktop/Audio | énumération, route, moteur, métriques, récupération | Audio `27` tests |
 | DSP | pipeline modulaire, stabilité numérique, `+75 dB` | DSP `90` tests |
-| Core/Infrastructure | validation V3, migration V1/V2, persistance | Core `90` tests |
+| Core/Infrastructure | validation V3, migration V1/V2, persistance, sélection et détection multi-application | Core `139` tests |
 | API | JWT/JWKS borné à 32 clés, `/health/*`, `/v1/me`, rate limiting pré/post-auth, métriques | API `105/105` tests |
 | Auth | contrats, appels Supabase, refresh/logout, redaction | Auth `54/54` tests |
-| Tooling Node | bootstrap/assets locaux, gate E2E et atomicité | `24` tests sur Windows/WSL, lint réussi, audit `0` |
-| PostgreSQL/RLS | schéma, grants, policies, triggers, RPC health/me | distant lié et local racine `128/128` ; gate WSL `111/111`, atomicité et E2E Auth/API TLS réussis |
+| Tooling Node | bootstrap/assets locaux, gate E2E et atomicité | `23/24` tests, 1 skip de plateforme, lint réussi, audit npm production propre |
+| PostgreSQL/RLS | schéma, grants, policies, triggers, RPC health/me | preuve historique du 29 juillet 2026 ; non rejouée pour `0.2.1` |
 
-La restauration verrouillée et le build Release des 13 projets réussissent
-avec `0` avertissement et `0` erreur. Le test complet réussit `366/366`
-(Audio `27`, Core `90`, DSP `90`, Auth `54`, API `105`). Pour la voie
-API/backend actuelle, la CLI Supabase exacte `2.109.1`,
+Le 6 août 2026, la restauration verrouillée et le build Release des 13 projets
+ont réussi avec `0` avertissement et `0` erreur. Le test .NET complet a réussi
+`415/415` (Audio `27`, Core `139`, DSP `90`, Auth `54`, API `105`). Les tests
+Node réussissent `23/24` avec un skip TLS de plateforme, le lint réussit et les
+audits NuGet/npm production sont propres. Les gates Supabase n’ont pas été
+rejoués pour `0.2.1`.
+
+Pour la preuve API/backend antérieure du 29 juillet 2026, la CLI Supabase exacte `2.109.1`,
 Node contrôlé avant `npm ci --offline`, le démarrage, deux resets depuis zéro,
 le lint PostgreSQL, pgTAP `111/111`, l’atomicité du runner, l’E2E Auth/API réel
 à deux utilisateurs, la panne/récupération readiness et la lecture JWKS avec
@@ -40,7 +49,8 @@ autres logs temporaires. Stack, API,
 SDK Linux temporaire, utilisateurs et logs temporaires ont ensuite été
 supprimés.
 
-Le déploiement Supabase distant Phase A est vérifié : les migrations
+Cette preuve historique comprenait aussi le déploiement Supabase distant Phase
+A : les migrations
 `20260728234203` et `20260728235312` sont alignées, avec la baseline immuable
 au SHA-256
 `11C3259D389CC8DEB77B9819407CBF2EF1B1788C148B548B302138D23A2C47FD`.
@@ -51,8 +61,8 @@ lint distant est propre, pgTAP réussit `128/128` sur le projet lié et
 `SET LOCAL ROLE postgres` avec le rôle CLI éphémère dans une transaction
 annulée par rollback. L’avertissement de cache `pg-delta` est non bloquant.
 
-Les audits NuGet et npm ne détectent aucune vulnérabilité. L’audit NuGet des
-packages dépréciés remonte toutefois des transitifs `5.0.0` hérités de
+Les audits NuGet et npm de cette preuve ne détectaient aucune vulnérabilité.
+L’audit NuGet des packages dépréciés remontait toutefois des transitifs `5.0.0` hérités de
 `xunit.v3` `3.2.2` dans les projets de tests
 (`Microsoft.NETCore.Platforms`, `System.Security.AccessControl` et, selon le
 projet, `System.Diagnostics.DiagnosticSource`). Cet avertissement amont reste
@@ -78,6 +88,10 @@ SHA-256
   `/v1/me` JWT-scoped sans argument d’identité ;
 - Supabase CLI locale exacte `2.109.1`, TLS loopback et clés ES256 locales ;
 - schéma de réglages V3 ;
+- routage manuel guidé pour Spotify, Discord, Chrome, Edge, Opera GX, Firefox,
+  Brave et jusqu’à seize noms de processus personnalisés ;
+- Spotify sélectionné par défaut, détection informative des processus choisis
+  et persistance dans `ManualRouting` ;
 - RawExpert fixe `0..+75 dB` par pas de `0,5 dB` ;
 - suppression du clamp DSP caché `±64` et assainissement NaN/Inf.
 - abstractions Auth/entitlement/update placées dans `Core/Abstractions`, avec
@@ -125,7 +139,12 @@ SHA-256
 
 ## Validation manuelle encore requise
 
-- transit réel Spotify de bout en bout avec signal ;
+- transit réel de bout en bout avec Spotify puis une seconde application ;
+- preuve qu’une application cochée mais non routée n’entre pas dans Booster ;
+- preuve qu’une application non cochée mais réellement routée est traitée ;
+- Discord : sortie complète seulement, microphone inchangé, absence
+  d’isolation de personne/bot ;
+- navigateur : mix de plusieurs onglets, absence d’isolation par onglet ;
 - test casque à faible niveau et panique ;
 - endurance audio et débranchement/reconnexion ;
 - machine propre, installation/désinstallation ;
@@ -135,6 +154,9 @@ SHA-256
 
 - `+75 dB` est dangereux et non sûr pour l’audition ;
 - tout programme routé vers le câble est traité ;
+- la sélection d’applications ne change aucun réglage Windows ;
+- Discord et les navigateurs sont traités comme des sorties complètes, sans
+  isolation de personne, bot ou onglet ;
 - Bluetooth et pilotes tiers ajoutent latence et conversions ;
 - la disponibilité JWKS/Data API conditionne l’API ;
 - le certificat et les clés locales deviennent sensibles s’ils quittent

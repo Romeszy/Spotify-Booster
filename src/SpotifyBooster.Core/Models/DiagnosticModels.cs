@@ -14,4 +14,6 @@ public sealed record DiagnosticSnapshot(
     AudioDeviceInfo? Output,
     AudioEngineStatus Engine,
     IReadOnlyList<DiagnosticError> RecentErrors,
-    AudioProcessingSettings? Processing = null);
+    AudioProcessingSettings? Processing = null,
+    IReadOnlyList<DetectedAudioApplicationProcess>? ApplicationProcesses = null,
+    ManualRoutingSettings? ManualRouting = null);

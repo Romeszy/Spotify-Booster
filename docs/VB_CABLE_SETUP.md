@@ -15,7 +15,7 @@ Vérifiez la provenance, la licence et les instructions actuelles de VB-Audio av
 Avec VB-CABLE standard :
 
 ```text
-Spotify
+sorties des applications choisies
   → CABLE Input (périphérique de rendu Windows)
   → câble virtuel
   → CABLE Output (périphérique de capture Windows)
@@ -25,7 +25,7 @@ Spotify
 
 Le nom paraît inversé si l’on pense du point de vue de l’application :
 
-- **CABLE Input** est l’entrée du câble, donc une sortie pour Spotify ;
+- **CABLE Input** est l’entrée du câble, donc une sortie pour les applications ;
 - **CABLE Output** est la sortie du câble, donc une source de capture pour Booster.
 
 ## Installer
@@ -40,15 +40,33 @@ Le nom paraît inversé si l’on pense du point de vue de l’application :
 
 Ces opérations appartiennent au pilote tiers. Spotify Booster n’en contrôle ni le succès ni la désinstallation.
 
-## Router uniquement Spotify
+## Choisir les applications à router
 
-1. Lancez Spotify et une piste à faible niveau.
-2. Ouvrez **Paramètres → Système → Son → Mélangeur de volume**.
-3. Dans la ligne Spotify, choisissez **CABLE Input** comme périphérique de sortie.
-4. Laissez les autres applications sur leurs sorties habituelles.
-5. Si Spotify ne change pas immédiatement de sortie, redémarrez Spotify.
+1. Ouvrez l’assistant de routage de Spotify Booster.
+2. Conservez Spotify, sélectionné par défaut, ou cochez aussi Discord, Google
+   Chrome, Microsoft Edge, Opera GX, Mozilla Firefox ou Brave.
+3. Pour une autre application, ajoutez son nom de processus, avec ou sans
+   `.exe`, par exemple `vlc` ou `tidal.exe`.
+4. Lancez chaque application sélectionnée et démarrez un son à faible niveau.
+5. Ouvrez **Paramètres → Système → Son → Mélangeur de volume**.
+6. Pour chaque application choisie, sélectionnez **CABLE Input** comme
+   périphérique de sortie.
+7. Laissez toutes les autres applications et les sons système sur leurs
+   sorties habituelles.
+8. Si une application ne change pas immédiatement de sortie, fermez-la puis
+   relancez-la.
 
-Tout programme routé vers CABLE Input sera traité par Booster.
+La liste dans Booster sert de guide et de détecteur de processus. Elle ne
+change pas les réglages Windows. Tout programme réellement routé vers CABLE
+Input sera traité, qu’il soit coché ou non dans l’assistant.
+
+Pour Discord, changez uniquement le périphérique de **sortie** de
+l’application. Ne choisissez jamais CABLE Input/CABLE Output comme microphone
+ou périphérique d’entrée Discord. Le câble transporte la sortie Discord
+complète : Booster ne peut pas isoler une personne, un bot ou un salon.
+
+Pour un navigateur, le processus sélectionné transporte la sortie complète du
+navigateur. Booster ne peut pas isoler un onglet.
 
 ## Configurer Spotify Booster
 
@@ -74,15 +92,26 @@ Pour le premier diagnostic :
 
 44,1 et 48 kHz sont couverts par les tests hors ligne. Un pilote peut toutefois ajouter ses propres conversions ou latences.
 
-## Test sûr
+## Test manuel sûr
 
 1. Baissez le volume physique.
-2. Vérifiez que seul Spotify cible le câble.
-3. Démarrez à `0 dB`, mode Protégé.
-4. Confirmez qu’il n’y a pas d’écho.
-5. Utilisez la panique.
-6. Testez ensuite `+3 dB`, puis `+6 dB`.
-7. Observez clips, limitation, underruns et overruns.
+2. Dans Booster, sélectionnez Spotify et une seconde application de test, par
+   exemple Discord ou un navigateur.
+3. Dans le mélangeur Windows, routez seulement Spotify vers CABLE Input.
+4. Démarrez Booster à `0 dB`, mode Protégé, puis confirmez que Spotify anime le
+   vu-mètre et sort sur le casque ou les enceintes.
+5. Lancez un son dans la seconde application : il doit rester sur sa sortie
+   habituelle et ne pas entrer dans le vu-mètre de Booster.
+6. Routez ensuite la sortie de cette seconde application vers CABLE Input ; son
+   signal doit maintenant entrer dans Booster.
+7. Décochez cette application dans Booster sans changer Windows : son signal
+   doit continuer à être traité, preuve que la sélection ne contrôle pas le
+   câble.
+8. Pour Discord, vérifiez que le microphone reste sur son entrée habituelle.
+   Pour un navigateur, vérifiez que plusieurs onglets audibles sont mélangés.
+9. Confirmez l’absence d’écho ou de feedback, utilisez la panique, puis testez
+   `+3 dB` et `+6 dB`.
+10. Observez clips, limitation, underruns et overruns.
 
 N’activez pas Expert brut pendant la première validation.
 
@@ -92,9 +121,9 @@ La route a été ouverte puis arrêtée sans erreur, mais aucun signal n’a ét
 
 ## Aucun signal
 
-- confirmez que Spotify utilise CABLE Input ;
+- confirmez que l’application testée utilise CABLE Input ;
 - confirmez que Booster capture CABLE Output ;
-- lancez une piste ;
+- lancez un son dans l’application ;
 - cliquez sur Actualiser ;
 - vérifiez que les endpoints ne sont pas désactivés ;
 - fermez les applications qui utilisent le câble en mode exclusif ;
@@ -112,7 +141,7 @@ Arrêtez immédiatement le moteur et baissez le volume.
 ## Désinstaller VB-CABLE
 
 1. Arrêtez Spotify Booster.
-2. Rendez une sortie physique à Spotify.
+2. Rendez une sortie physique à chaque application routée vers le câble.
 3. Désactivez le démarrage automatique du traitement.
 4. Suivez la procédure de désinstallation de VB-Audio.
 5. Redémarrez Windows si demandé.

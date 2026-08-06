@@ -3,7 +3,8 @@
 ## Route
 
 ```text
-source virtuelle
+sorties applicatives routées manuellement dans Windows
+  → câble virtuel / source virtuelle
   → capture WASAPI partagée
   → tampon borné
   → conversion stéréo / resampling
@@ -11,8 +12,18 @@ source virtuelle
   → sortie WASAPI partagée
 ```
 
-L’application traite tout signal présent sur la source sélectionnée. La
-détection de Spotify est informative et ne prouve pas l’origine de l’audio.
+L’application traite tout signal présent sur la source sélectionnée. Spotify
+reste sélectionné par défaut dans le guide, avec Discord, Chrome, Edge, Opera
+GX, Firefox, Brave et des processus personnalisés disponibles. Cette sélection
+et la détection des processus sont informatives : elles ne changent pas le
+routage Windows et ne prouvent pas l’origine de l’audio.
+
+Le câble présente un mix, pas des flux isolés par PID. Une application non
+cochée est traitée si Windows l’envoie réellement vers le câble. Inversement,
+cocher une application ne fait entrer aucun signal tant que l’utilisateur ne
+route pas sa sortie. Discord fournit sa sortie complète, jamais le microphone,
+sans isolation de personne ou de bot. Un navigateur fournit sa sortie complète,
+sans isolation d’onglet.
 
 ## Pipeline DSP
 
@@ -101,6 +112,8 @@ Le callback audio ne fait aucune opération fichier, réseau ou WPF. Les réglag
 sont préparés hors callback, puis publiés atomiquement. Le traitement du buffer
 réutilisé n’alloue pas.
 
-Les voies les plus récentes ont validé Audio `27` tests et DSP `90` tests.
-Ces compteurs ne sont pas un total de release. Le transit Spotify réel de bout
-en bout reste une validation manuelle séparée.
+Le 6 août 2026, la solution .NET a réussi `415/415` tests, dont Audio `27` et
+DSP `90`, après un build Release à `0` avertissement et `0` erreur. Les tests
+Node réussissent `23/24`, avec un scénario TLS de plateforme ignoré. Le transit réel
+multi-application, les limites Discord/navigateur et le mix du câble restent
+des validations manuelles séparées.

@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using SpotifyBooster.Core.Configuration;
+using SpotifyBooster.Core.Models;
 using SpotifyBooster.Infrastructure.Diagnostics;
 using SpotifyBooster.Infrastructure.Logging;
 using SpotifyBooster.Infrastructure.Persistence;
@@ -714,6 +715,78 @@ public sealed class JsonSettingsServiceTests : IDisposable
             service.SettingsFilePath,
             cancellationToken);
         Assert.Equal(original, afterFailure);
+    }
+
+    [Fact]
+    public async Task SaveAndLoadRoundTripsManualRoutingSelection()
+    {
+        var service = CreateService();
+        var settings = new AppSettings
+        {
+            FirstRunCompleted = true,
+            ManualRouting = new ManualRoutingSettings
+            {
+                SelectedApplications =
+                [
+                    AudioApplicationKind.Discord,
+                    AudioApplicationKind.Edge,
+                    AudioApplicationKind.OperaGx,
+                ],
+                CustomProcessNames = ["tidal"],
+            },
+            Processing = DirectProcessing(0),
+            Profiles = [],
+        };
+
+        await service.SaveAsync(
+            settings,
+            TestContext.Current.CancellationToken);
+        AppSettings loaded = await service.LoadAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.True(loaded.FirstRunCompleted);
+        Assert.Equal(settings.Processing, loaded.Processing);
+        Assert.Equal(settings.Hotkeys, loaded.Hotkeys);
+        Assert.Equal(
+            settings.ManualRouting.SelectedApplications,
+            loaded.ManualRouting.SelectedApplications);
+        Assert.Equal(
+            settings.ManualRouting.CustomProcessNames,
+            loaded.ManualRouting.CustomProcessNames);
+    }
+
+    [Fact]
+    public async Task ExistingV3WithoutManualRoutingDefaultsToSpotifyOnly()
+    {
+        Directory.CreateDirectory(temporaryDirectory);
+        string json =
+            """
+            {
+              "SchemaVersion": 3,
+              "FirstRunCompleted": true,
+              "Processing": {
+                "Mode": 1,
+                "MainGainDb": 0,
+                "CompressorEnabled": false,
+                "SoftClipperEnabled": false,
+                "LimiterEnabled": false
+              },
+              "Profiles": []
+            }
+            """;
+        await File.WriteAllTextAsync(
+            Path.Combine(temporaryDirectory, "settings.json"),
+            json,
+            TestContext.Current.CancellationToken);
+
+        AppSettings loaded = await CreateService().LoadAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.True(loaded.FirstRunCompleted);
+        Assert.Equal(
+            [AudioApplicationKind.Spotify],
+            loaded.ManualRouting.SelectedApplications);
+        Assert.Empty(loaded.ManualRouting.CustomProcessNames);
     }
 
     public void Dispose()
