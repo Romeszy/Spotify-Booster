@@ -1,14 +1,29 @@
 # État du projet
 
-## Livraison 0.2.2 — préparation du 30 octobre 2026
+## Livraison 0.2.2 — publiée le 30 octobre 2026
 
 Interface et canal GitHub réunis pour une release Windows x64. Versions app,
 assembly et scripts alignées sur 0.2.2. Les releases distantes précédentes sont
 des préversions : elles expliquent la réponse 404 du canal stable, le dépôt étant
-public. La publication demandée utilisera un tag distinct v0.2.2, sans écraser
-les anciennes releases. Les notes et limites sont dans `releases/v0.2.2.md`.
-Le pipeline de packaging doit produire son rapport complet sur un commit propre
-avant publication. Le contrôle UI de 122 bindings passe sur cette préparation.
+public. Release stable : https://github.com/Romeszy/Spotify-Booster/releases/tag/v0.2.2
+Tag distinct, anciennes releases conservées. Source du paquet : commit
+`71302bf4be84ca1ecc7df73cd49f5423c11650fc`. Notes : `releases/v0.2.2.md`.
+
+Packaging sur worktree propre : `Status: Complete`, 427/427 tests, contrôle UI
+122 bindings réussi. Un avertissement MSB3026 de copie concurrente a été résolu
+automatiquement par retry ; aucune erreur de build. EXE, ZIP portable, SHA256SUMS
+et rapport de release publiés ; tailles et digests GitHub comparés aux fichiers
+locaux avant publication. Version EXE 0.2.2.0 vérifiée.
+
+Test réseau réel après publication avec `GitHubUpdateService` : détection 0.2.2
+depuis 0.2.1, téléchargement complet et hash validé ; aucune mise à jour proposée
+depuis 0.2.2. Installateur téléchargé mais non exécuté : mise à niveau effective
+et conservation des réglages sur PC tiers non vérifiées. Binaires non signés.
+Les anciens artefacts ont été conservés sous `.omx/release-backups/pre-v0.2.2`.
+
+Skills/outils livraison : Ponytail (réutilisation des scripts), PowerShell,
+.NET, NSIS, Git et GitHub CLI authentifiée. Pas de nouvelle dépendance ni de
+modification des migrations, du backend distant ou des paramètres GitHub.
 
 ## 30 octobre 2026 : canal de mises à jour GitHub implémenté
 
