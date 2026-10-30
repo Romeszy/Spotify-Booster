@@ -1,5 +1,36 @@
 # État du projet
 
+## Livraison 0.2.2 — préparation du 30 octobre 2026
+
+Interface et canal GitHub réunis pour une release Windows x64. Versions app,
+assembly et scripts alignées sur 0.2.2. Les releases distantes précédentes sont
+des préversions : elles expliquent la réponse 404 du canal stable, le dépôt étant
+public. La publication demandée utilisera un tag distinct v0.2.2, sans écraser
+les anciennes releases. Les notes et limites sont dans `releases/v0.2.2.md`.
+Le pipeline de packaging doit produire son rapport complet sur un commit propre
+avant publication. Le contrôle UI de 122 bindings passe sur cette préparation.
+
+## 30 octobre 2026 : canal de mises à jour GitHub implémenté
+
+Ajout du canal stable manuel dans Paramètres : vérification GitHub, téléchargement
+de l’EXE avec validation taille/SHA-256, puis lancement de NSIS et fermeture propre.
+Le bloc visuel est coordonné avec l’agent 2 chargé de la refonte UI.
+Les copies portables vérifient la version mais se mettent à jour manuellement.
+Le 30 octobre, l’API publique `releases/latest` répond 404 : aucune release stable
+accessible anonymement n’est actuellement démontrée. Publier une stable publique
+avec l’installateur et son digest GitHub est nécessaire pour un test réel.
+La signature indépendante, le rollback automatique et les mises à jour imposées
+ne font pas partie de ce canal manuel. Voir `UPDATE_SYSTEM.md`.
+
+Vérification agent 1 : build solution Release réussi, zéro avertissement/erreur ;
+427 tests réussis (Core 151 dont 12 updater, DSP 90, Audio 27, Auth 54, API 105).
+Compilation NSIS réussie avec le payload portable préexistant : validation du
+script uniquement, pas un nouveau paquet distribuable. Revue ciblée : HTTPS,
+dépôt/CDN autorisés, bornes taille/délai, SHA-256 obligatoire, staging aléatoire,
+aucun token embarqué, aucun droit administrateur. Aucun test d’upgrade réel,
+aucune publication de release et aucun push réalisés dans cette intervention.
+La validation visuelle de la refonte reste coordonnée par l’agent 2.
+
 Date de mise à jour : 6 août 2026.
 
 ## Synthèse

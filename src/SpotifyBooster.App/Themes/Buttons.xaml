@@ -8,12 +8,17 @@
             Background="{TemplateBinding Background}"
             BorderBrush="{TemplateBinding BorderBrush}"
             BorderThickness="{TemplateBinding BorderThickness}"
-            CornerRadius="6"
+            CornerRadius="8"
+            RenderTransformOrigin="0.5,0.5"
             SnapsToDevicePixels="True">
+      <Border.RenderTransform>
+        <ScaleTransform ScaleX="1"
+                        ScaleY="1" />
+      </Border.RenderTransform>
       <Grid>
         <Border x:Name="StateOverlay"
                 Background="{DynamicResource Brush.TextPrimary}"
-                CornerRadius="5"
+                CornerRadius="7"
                 IsHitTestVisible="False"
                 Opacity="0" />
         <ContentPresenter Margin="{TemplateBinding Padding}"
@@ -26,18 +31,21 @@
     <ControlTemplate.Triggers>
       <Trigger Property="IsMouseOver"
                Value="True">
-        <Setter TargetName="StateOverlay"
-                Property="Opacity"
-                Value="0.08" />
         <Setter TargetName="Root"
                 Property="BorderBrush"
                 Value="{DynamicResource Brush.BorderStrong}" />
       </Trigger>
       <Trigger Property="IsPressed"
                Value="True">
-        <Setter TargetName="StateOverlay"
-                Property="Opacity"
-                Value="0.16" />
+        <Setter TargetName="Root"
+                Property="Effect">
+          <Setter.Value>
+            <DropShadowEffect BlurRadius="5"
+                              Direction="270"
+                              Opacity="0.3"
+                              ShadowDepth="1" />
+          </Setter.Value>
+        </Setter>
       </Trigger>
       <Trigger Property="IsKeyboardFocused"
                Value="True">
@@ -56,6 +64,107 @@
         <Setter Property="Cursor"
                 Value="Arrow" />
       </Trigger>
+      <MultiDataTrigger>
+        <MultiDataTrigger.Conditions>
+          <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource TemplatedParent}}"
+                     Value="True" />
+          <Condition Binding="{Binding Source={x:Static SystemParameters.ClientAreaAnimation}}"
+                     Value="False" />
+        </MultiDataTrigger.Conditions>
+        <Setter TargetName="StateOverlay"
+                Property="Opacity"
+                Value="0.08" />
+      </MultiDataTrigger>
+      <MultiDataTrigger>
+        <MultiDataTrigger.Conditions>
+          <Condition Binding="{Binding IsPressed, RelativeSource={RelativeSource TemplatedParent}}"
+                     Value="True" />
+          <Condition Binding="{Binding Source={x:Static SystemParameters.ClientAreaAnimation}}"
+                     Value="False" />
+        </MultiDataTrigger.Conditions>
+        <Setter TargetName="StateOverlay"
+                Property="Opacity"
+                Value="0.16" />
+        <Setter TargetName="Root"
+                Property="RenderTransform">
+          <Setter.Value>
+            <ScaleTransform ScaleX="0.97"
+                            ScaleY="0.97" />
+          </Setter.Value>
+        </Setter>
+      </MultiDataTrigger>
+      <MultiDataTrigger>
+        <MultiDataTrigger.Conditions>
+          <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource TemplatedParent}}"
+                     Value="True" />
+          <Condition Binding="{Binding Source={x:Static SystemParameters.ClientAreaAnimation}}"
+                     Value="True" />
+        </MultiDataTrigger.Conditions>
+        <MultiDataTrigger.EnterActions>
+          <BeginStoryboard>
+            <Storyboard>
+              <DoubleAnimation Storyboard.TargetName="StateOverlay"
+                               Storyboard.TargetProperty="Opacity"
+                               To="0.08"
+                               Duration="0:0:0.16" />
+            </Storyboard>
+          </BeginStoryboard>
+        </MultiDataTrigger.EnterActions>
+        <MultiDataTrigger.ExitActions>
+          <BeginStoryboard>
+            <Storyboard>
+              <DoubleAnimation Storyboard.TargetName="StateOverlay"
+                               Storyboard.TargetProperty="Opacity"
+                               To="0"
+                               Duration="0:0:0.2" />
+            </Storyboard>
+          </BeginStoryboard>
+        </MultiDataTrigger.ExitActions>
+      </MultiDataTrigger>
+      <MultiDataTrigger>
+        <MultiDataTrigger.Conditions>
+          <Condition Binding="{Binding IsPressed, RelativeSource={RelativeSource TemplatedParent}}"
+                     Value="True" />
+          <Condition Binding="{Binding Source={x:Static SystemParameters.ClientAreaAnimation}}"
+                     Value="True" />
+        </MultiDataTrigger.Conditions>
+        <MultiDataTrigger.EnterActions>
+          <BeginStoryboard>
+            <Storyboard>
+              <DoubleAnimation Storyboard.TargetName="StateOverlay"
+                               Storyboard.TargetProperty="Opacity"
+                               To="0.16"
+                               Duration="0:0:0.07" />
+              <DoubleAnimation Storyboard.TargetName="Root"
+                               Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
+                               To="0.97"
+                               Duration="0:0:0.07" />
+              <DoubleAnimation Storyboard.TargetName="Root"
+                               Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
+                               To="0.97"
+                               Duration="0:0:0.07" />
+            </Storyboard>
+          </BeginStoryboard>
+        </MultiDataTrigger.EnterActions>
+        <MultiDataTrigger.ExitActions>
+          <BeginStoryboard>
+            <Storyboard>
+              <DoubleAnimation Storyboard.TargetName="StateOverlay"
+                               Storyboard.TargetProperty="Opacity"
+                               To="0.08"
+                               Duration="0:0:0.12" />
+              <DoubleAnimation Storyboard.TargetName="Root"
+                               Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
+                               To="1"
+                               Duration="0:0:0.12" />
+              <DoubleAnimation Storyboard.TargetName="Root"
+                               Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
+                               To="1"
+                               Duration="0:0:0.12" />
+            </Storyboard>
+          </BeginStoryboard>
+        </MultiDataTrigger.ExitActions>
+      </MultiDataTrigger>
     </ControlTemplate.Triggers>
   </ControlTemplate>
 
@@ -66,7 +175,7 @@
     <Setter Property="Padding"
             Value="14,8" />
     <Setter Property="Background"
-            Value="{DynamicResource Brush.Control}" />
+            Value="{DynamicResource Brush.Control3D}" />
     <Setter Property="BorderBrush"
             Value="{DynamicResource Brush.Border}" />
     <Setter Property="BorderThickness"
@@ -100,7 +209,7 @@
     <Setter Property="MinHeight"
             Value="42" />
     <Setter Property="Background"
-            Value="{DynamicResource Brush.Accent}" />
+            Value="{DynamicResource Brush.Accent3D}" />
     <Setter Property="BorderBrush"
             Value="{DynamicResource Brush.Accent}" />
     <Setter Property="Foreground"
@@ -113,7 +222,7 @@
          TargetType="Button"
          BasedOn="{StaticResource Button.Base}">
     <Setter Property="Background"
-            Value="{DynamicResource Brush.SurfaceRaised}" />
+            Value="{DynamicResource Brush.Control3D}" />
   </Style>
 
   <Style x:Key="Button.Ghost"

@@ -4,9 +4,10 @@ SetCompressor /SOLID lzma
 
 !include "MUI2.nsh"
 !include "Sections.nsh"
+!include "FileFunc.nsh"
 
 !ifndef VERSION
-  !define VERSION "0.2.1"
+  !define VERSION "0.2.2"
 !endif
 !ifndef SOURCE_DIR
   !error "SOURCE_DIR must point to the portable publish directory."
@@ -101,6 +102,18 @@ Section /o "Start automatically when I sign in" SEC_AUTOSTART
 SectionEnd
 
 Function .onInit
+  ; Wait for the updater's process to release binaries before replacing them.
+  ${GetParameters} $0
+  ${GetOptions} $0 "/UPDATEPID=" $1
+  StrCmp $1 "" updateWaitDone
+  System::Call 'kernel32::OpenProcess(i 0x100000, i 0, i r1) p.r2'
+  StrCmp $2 0 updateWaitDone
+  System::Call 'kernel32::WaitForSingleObject(p r2, i 30000) i.r3'
+  System::Call 'kernel32::CloseHandle(p r2)'
+  StrCmp $3 0 updateWaitDone
+  MessageBox MB_OK|MB_ICONSTOP "Spotify Booster est encore ouvert. Quittez-le puis relancez cet installateur."
+  Abort
+updateWaitDone:
   ; Preserve the user's existing autostart choice during an in-place update.
   ; The user can still clear the component checkbox to disable it explicitly.
   ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Spotify Booster"

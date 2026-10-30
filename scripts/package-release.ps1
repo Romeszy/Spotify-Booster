@@ -24,7 +24,7 @@ else {
     $dotnetCommand.Source
 }
 
-$version = "0.2.1"
+$version = "0.2.2"
 $branch = (& git -C $repoRoot branch --show-current).Trim()
 $commit = (& git -C $repoRoot rev-parse HEAD).Trim()
 $shortCommit = (& git -C $repoRoot rev-parse --short=12 HEAD).Trim()

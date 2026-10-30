@@ -1,11 +1,12 @@
 <Window x:Class="SpotifyBooster.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:SpotifyBooster.App.Controls"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="Spotify Booster"
         Icon="Assets/SpotifyBooster.ico"
-        Width="1040"
-        Height="720"
+        Width="1380"
+        Height="940"
         MinWidth="880"
         MinHeight="620"
         Background="{DynamicResource Brush.Canvas}"
@@ -20,15 +21,15 @@
            TargetType="Button"
            BasedOn="{StaticResource Button.Ghost}">
       <Setter Property="MinWidth"
-              Value="118" />
+              Value="152" />
       <Setter Property="Height"
-              Value="40" />
+              Value="48" />
       <Setter Property="Margin"
-              Value="0,0,4,0" />
+              Value="0,0,0,8" />
       <Setter Property="HorizontalContentAlignment"
-              Value="Center" />
+              Value="Left" />
       <Setter Property="BorderThickness"
-              Value="0,0,0,2" />
+              Value="2,0,0,0" />
     </Style>
 
     <Style x:Key="TopTab.Control"
@@ -151,16 +152,17 @@
 
   <Border Style="{StaticResource Window.Frame}">
     <Grid>
+      <Grid.ColumnDefinitions><ColumnDefinition Width="190"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
       <Grid.RowDefinitions>
         <RowDefinition Height="40" />
-        <RowDefinition Height="48" />
+        <RowDefinition Height="0" />
         <RowDefinition Height="Auto" />
         <RowDefinition Height="*" />
         <RowDefinition Height="64" />
       </Grid.RowDefinitions>
 
       <!-- Custom title bar -->
-      <Border Grid.Row="0"
+      <Border Grid.Row="0" Grid.ColumnSpan="2"
               Style="{StaticResource Window.TitleBar}"
               MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
         <Grid Margin="12,0,4,0">
@@ -232,44 +234,30 @@
         </Grid>
       </Border>
 
-      <!-- Stable top navigation -->
-      <Border Grid.Row="1"
-              Background="{DynamicResource Brush.Rail}"
-              BorderBrush="{DynamicResource Brush.Border}"
-              BorderThickness="0,0,0,1">
-        <Grid Margin="16,4">
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="Auto" />
-          </Grid.ColumnDefinitions>
-          <StackPanel Orientation="Horizontal">
-            <Button Style="{StaticResource TopTab.Control}"
-                    AutomationProperties.Name="Ouvrir Contrôle"
-                    Command="{Binding NavigateCommand}"
-                    CommandParameter="Dashboard"
-                    Content="Contrôle" />
-            <Button Style="{StaticResource TopTab.Settings}"
-                    AutomationProperties.Name="Ouvrir Réglages"
-                    Command="{Binding NavigateCommand}"
-                    CommandParameter="Settings"
-                    Content="Réglages" />
-            <Button Style="{StaticResource TopTab.Diagnostics}"
-                    AutomationProperties.Name="Ouvrir Diagnostic"
-                    Command="{Binding NavigateCommand}"
-                    CommandParameter="Diagnostics"
-                    Content="Diagnostic" />
+
+      <!-- Navigation remains visible while every page scrolls independently. -->
+      <Border Grid.Row="1" Grid.RowSpan="3" Background="{DynamicResource Brush.Rail}"
+              BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,1,0" Padding="16,28,16,20">
+        <DockPanel LastChildFill="True">
+          <StackPanel DockPanel.Dock="Bottom">
+            <Separator Margin="0,16"/>
+            <TextBlock Text="{Binding SpotifyStatusText}" TextWrapping="Wrap" Foreground="{DynamicResource Brush.Accent}" FontSize="12"/>
+            <TextBlock Text="Le son, à votre mesure." Style="{StaticResource Text.Caption}" Margin="0,8,0,0"/>
           </StackPanel>
-          <Button Grid.Column="1"
-                  Style="{StaticResource Button.Secondary}"
-                  MinHeight="36"
-                  AutomationProperties.Name="Ouvrir l’assistant de configuration"
-                  Command="{Binding RelaunchSetupCommand}"
-                  Content="Assistant de routage" />
-        </Grid>
+          <StackPanel>
+            <TextBlock Text="VOTRE STUDIO" Style="{StaticResource Text.Caption}" Margin="12,0,0,24"/>
+            <Button Style="{StaticResource TopTab.Control}" Command="{Binding NavigateCommand}" CommandParameter="Dashboard" Content="◉   Vue d’ensemble" AutomationProperties.Name="Ouvrir Contrôle"/>
+            <Button Style="{StaticResource TopTab.Settings}" Command="{Binding NavigateCommand}" CommandParameter="Settings" Content="⚙   Réglages" AutomationProperties.Name="Ouvrir Réglages"/>
+            <Button Style="{StaticResource TopTab.Diagnostics}" Command="{Binding NavigateCommand}" CommandParameter="Diagnostics" Content="≋   Diagnostic" AutomationProperties.Name="Ouvrir Diagnostic"/>
+            <Separator Margin="0,14"/>
+            <Button Style="{StaticResource Button.Navigation}" Command="{Binding RelaunchSetupCommand}" Content="↗   Assistant audio" AutomationProperties.Name="Ouvrir l’assistant de configuration" MinHeight="48"/>
+            <TextBlock Text="Configurez votre sortie et retrouvez tous vos réglages audio." Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="12,16,8,0"/>
+          </StackPanel>
+        </DockPanel>
       </Border>
 
       <!-- Global notification -->
-      <Border Grid.Row="2"
+      <Border Grid.Row="2" Grid.Column="1"
               Margin="16,12,16,0"
               Padding="12,10"
               BorderThickness="1"
@@ -338,39 +326,264 @@
       </Border>
 
       <!-- Page host -->
-      <Grid Grid.Row="3">
+      <Grid Grid.Row="3" Grid.Column="1">
         <!-- Control bench -->
         <ScrollViewer HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto"
                       Visibility="{Binding CurrentPage, Converter={StaticResource PageVisibilityConverter}, ConverterParameter=Dashboard}">
-          <StackPanel Margin="24,20,24,24">
-            <Grid Margin="0,0,0,12">
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-              </Grid.ColumnDefinitions>
-              <StackPanel>
-                <TextBlock Style="{StaticResource Text.Title}"
-                           Text="Banc audio" />
-                <TextBlock Style="{StaticResource Text.Secondary}"
-                           Margin="0,3,0,0"
-                           Text="{Binding RouteStatusText}" />
-              </StackPanel>
-              <StackPanel Grid.Column="1"
-                          Orientation="Horizontal"
-                          VerticalAlignment="Center">
-                <Ellipse Width="8"
-                         Height="8"
-                         Margin="0,0,8,0"
-                         Fill="{DynamicResource Brush.Accent}" />
-                <TextBlock Foreground="{DynamicResource Brush.TextSecondary}"
-                           Text="{Binding RoutedApplicationsStatusText}" />
-              </StackPanel>
-            </Grid>
+          <Grid x:Name="DashboardLayout" Margin="22,20,22,24">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="1.7*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
 
+            <Border x:Name="DashboardHero" Style="{StaticResource Card}" Margin="0,0,16,0" MinHeight="210">
+              <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="156"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <Grid Margin="0,0,20,0" IsHitTestVisible="False">
+                  <Border CornerRadius="16" BorderBrush="#254539" BorderThickness="1">
+                    <Border.Background><RadialGradientBrush Center="0.3,0.25" RadiusX="1" RadiusY="1"><GradientStop Color="#205D48" Offset="0"/><GradientStop Color="#071713" Offset="0.8"/></RadialGradientBrush></Border.Background>
+                  </Border>
+                  <Ellipse Width="110" Height="110" Stroke="#385C4B" StrokeThickness="1"/>
+                  <Ellipse Width="88" Height="88" Stroke="#234F3C" StrokeThickness="12"/>
+                  <Viewbox Width="84" Height="60"><Path Data="M0,30 L8,30 M17,20 L17,40 M29,6 L29,54 M41,0 L41,60 M53,12 L53,48 M65,22 L65,38 M76,30 L84,30" Stroke="{DynamicResource Brush.Accent}" StrokeThickness="4" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/></Viewbox>
+                </Grid>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                  <TextBlock Text="VOTRE SON. AMPLIFIÉ." Style="{StaticResource Text.Caption}"/>
+                  <TextBlock Text="Spotify Booster" FontSize="28" FontWeight="SemiBold" Margin="0,12,0,8"/>
+                  <TextBlock Text="{Binding SelectedApplicationNamesText}" Foreground="{DynamicResource Brush.Accent}" TextWrapping="Wrap"/>
+                  <TextBlock Text="{Binding RouteStatusText}" Style="{StaticResource Text.Secondary}" TextWrapping="Wrap" Margin="0,12,0,0"/>
+                  <TextBlock Text="{Binding RoutedApplicationsStatusText}" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                </StackPanel>
+              </Grid>
+            </Border>
+            <Border x:Name="EqualizerCard" Grid.Column="1" Style="{StaticResource Card}">
+              <StackPanel>
+                <CheckBox Style="{StaticResource Setting.Check}" IsChecked="{Binding EqualizerEnabled}" Content="ÉGALISEUR" AutomationProperties.Name="Activer l’égaliseur trois bandes"/>
+                <TextBlock Text="Sculptez les détails de votre son." Style="{StaticResource Text.Caption}" Margin="0,5,0,12"/>
+                <Grid>
+                  <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                  <StackPanel Grid.Column="0" Margin="8,0"><TextBlock Text="{Binding EqualizerLowDb, StringFormat={}{0:+0.0;-0.0;0.0} dB}" HorizontalAlignment="Center" Foreground="{DynamicResource Brush.Accent}"/><Slider Orientation="Vertical" Height="92" Minimum="-12" Maximum="12" SmallChange="0.5" Value="{Binding EqualizerLowDb}" AutomationProperties.Name="Égaliseur graves en décibels"/><TextBlock Text="GRAVES" Style="{StaticResource Text.Caption}" HorizontalAlignment="Center"/></StackPanel><StackPanel Grid.Column="1" Margin="8,0"><TextBlock Text="{Binding EqualizerMidDb, StringFormat={}{0:+0.0;-0.0;0.0} dB}" HorizontalAlignment="Center" Foreground="{DynamicResource Brush.Accent}"/><Slider Orientation="Vertical" Height="92" Minimum="-12" Maximum="12" SmallChange="0.5" Value="{Binding EqualizerMidDb}" AutomationProperties.Name="Égaliseur médiums en décibels"/><TextBlock Text="MÉDIUMS" Style="{StaticResource Text.Caption}" HorizontalAlignment="Center"/></StackPanel><StackPanel Grid.Column="2" Margin="8,0"><TextBlock Text="{Binding EqualizerHighDb, StringFormat={}{0:+0.0;-0.0;0.0} dB}" HorizontalAlignment="Center" Foreground="{DynamicResource Brush.Accent}"/><Slider Orientation="Vertical" Height="92" Minimum="-12" Maximum="12" SmallChange="0.5" Value="{Binding EqualizerHighDb}" AutomationProperties.Name="Égaliseur aigus en décibels"/><TextBlock Text="AIGUS" Style="{StaticResource Text.Caption}" HorizontalAlignment="Center"/></StackPanel>
+                </Grid>
+              </StackPanel>
+            </Border>
+            <!-- Main instrument surface -->
+            <Border x:Name="GainCard" Grid.Row="1" Style="{StaticResource Card}" Background="{DynamicResource Brush.Surface3D}"
+                    BorderBrush="{DynamicResource Brush.Border}"
+                    BorderThickness="1"
+                    CornerRadius="16"
+                    Padding="20"
+                    Margin="0,16,16,0">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="1.35*" />
+                  <ColumnDefinition Width="1" />
+                  <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Margin="0,0,22,0">
+                  <TextBlock Style="{StaticResource Text.Caption}"
+                             Text="GAIN PRINCIPAL" />
+
+                  <Grid Height="228" Margin="0,4,0,4">
+                    <controls:GainDial Value="{Binding MainGainDb}" Maximum="{Binding GainMaximumDb}"/>
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" IsHitTestVisible="False">
+                      <TextBlock Text="{Binding GainDbText}" FontSize="30" FontWeight="SemiBold" HorizontalAlignment="Center" AutomationProperties.Name="Gain principal demandé"/>
+                      <TextBlock Text="{Binding GainPercentText}" Foreground="{DynamicResource Brush.Accent}" FontSize="16" HorizontalAlignment="Center" Margin="0,6,0,0" Visibility="{Binding ShowLinearPercent, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                      <TextBlock Text="BOOST" Style="{StaticResource Text.Caption}" HorizontalAlignment="Center" Margin="0,8,0,0"/>
+                    </StackPanel>
+                  </Grid>
+                  <Slider Minimum="0"
+                          Maximum="{Binding GainMaximumDb}"
+                          TickFrequency="{Binding GainStepDb}"
+                          SmallChange="{Binding GainStepDb}"
+                          LargeChange="1"
+                          IsSnapToTickEnabled="True"
+                          Value="{Binding MainGainDb, UpdateSourceTrigger=PropertyChanged}"
+                          AutomationProperties.Name="Gain principal en décibels"
+                          AutomationProperties.HelpText="De zéro au maximum autorisé par le mode actif" />
+                  <Grid Margin="8,3,8,0">
+                    <TextBlock Style="{StaticResource Text.Caption}"
+                               Text="0 dB · neutre" />
+                    <TextBlock Style="{StaticResource Text.Caption}"
+                               HorizontalAlignment="Right"
+                               Text="{Binding GainMaximumDb, StringFormat=+{0:0} dB}" />
+                  </Grid>
+                  <Border Style="{StaticResource Banner.Warning}"
+                          Margin="0,15,0,0"
+                          Visibility="{Binding HasSafetyWarning, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock Foreground="{DynamicResource Brush.Warning}"
+                               FontSize="12"
+                               Text="{Binding SafetyWarningText}"
+                               TextWrapping="Wrap" />
+                  </Border>
+                </StackPanel>
+
+                <Border Grid.Column="1"
+                        Background="{DynamicResource Brush.Border}" />
+
+                <StackPanel Grid.Column="2"
+                            Margin="22,0,0,0">
+                  <TextBlock Style="{StaticResource Text.Caption}"
+                             Text="MODE DU PIPELINE" />
+                  <ListBox Margin="0,8,0,0"
+                           Padding="0"
+                           Background="{DynamicResource Brush.Transparent}"
+                           BorderThickness="0"
+                           ItemsSource="{Binding ProtectionModes}"
+                           SelectedItem="{Binding ProtectionMode}"
+                           AutomationProperties.Name="Mode de protection audio">
+                    <ListBox.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <UniformGrid Columns="3" />
+                      </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemContainerStyle>
+                      <Style TargetType="ListBoxItem"
+                             BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                        <Setter Property="Margin"
+                                Value="0,0,4,0" />
+                        <Setter Property="HorizontalContentAlignment"
+                                Value="Center" />
+                      </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                      <DataTemplate>
+                        <TextBlock x:Name="ModeName" MaxWidth="58" TextWrapping="Wrap" TextAlignment="Center"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   Text="{Binding}" />
+                        <DataTemplate.Triggers>
+                          <DataTrigger Binding="{Binding}"
+                                       Value="Protected">
+                            <Setter TargetName="ModeName"
+                                    Property="Text"
+                                    Value="Protégé" />
+                          </DataTrigger>
+                          <DataTrigger Binding="{Binding}"
+                                       Value="Direct">
+                            <Setter TargetName="ModeName"
+                                    Property="Text"
+                                    Value="Direct" />
+                          </DataTrigger>
+                          <DataTrigger Binding="{Binding}"
+                                       Value="RawExpert">
+                            <Setter TargetName="ModeName"
+                                    Property="Text"
+                                    Value="Expert brut" />
+                          </DataTrigger>
+                        </DataTemplate.Triggers>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                  <TextBlock Style="{StaticResource Text.Secondary}"
+                             Margin="0,8,0,16"
+                             MinHeight="34"
+                             Text="{Binding ProtectionModeDescription}"
+                             TextWrapping="Wrap" />
+
+                  <Grid Margin="0,0,0,5">
+                    <TextBlock Style="{StaticResource Text.Caption}"
+                               Text="ENTRÉE" />
+                    <TextBlock Style="{StaticResource Text.Metric}"
+                               HorizontalAlignment="Right"
+                               Foreground="{DynamicResource Brush.Info}"
+                               Text="{Binding InputPeakText}" />
+                  </Grid>
+                  <ProgressBar Style="{StaticResource Meter.Input}"
+                               Maximum="100"
+                               Value="{Binding InputLevel, Mode=OneWay}"
+                               AutomationProperties.Name="Niveau d’entrée" />
+                  <Grid Margin="0,12,0,5">
+                    <TextBlock Style="{StaticResource Text.Caption}"
+                               Text="SORTIE" />
+                    <TextBlock Style="{StaticResource Text.Metric}"
+                               HorizontalAlignment="Right"
+                               Foreground="{DynamicResource Brush.Accent}"
+                               Text="{Binding OutputPeakText}" />
+                  </Grid>
+                  <ProgressBar Style="{StaticResource Meter.Output}"
+                               Maximum="100"
+                               Value="{Binding OutputLevel, Mode=OneWay}"
+                               AutomationProperties.Name="Niveau de sortie" />
+                  <StackPanel Margin="0,12,0,0"><TextBlock Style="{StaticResource Text.Caption}" Text="{Binding ClippingStatusText}"/><TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,4,0,0" Text="{Binding LimiterStatusText}"/></StackPanel>
+                </StackPanel>
+              </Grid>
+            </Border>
+
+            <!-- Bass strip -->
+            <Border x:Name="BassCard" Grid.Row="1" Grid.Column="1" Style="{StaticResource Card}" Margin="0,16,0,0">
+              <StackPanel>
+                <Grid Margin="0,0,0,12">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="160" />
+                  </Grid.ColumnDefinitions>
+                  <CheckBox Style="{StaticResource Setting.Check}"
+                            IsChecked="{Binding BassBoostEnabled}"
+                            AutomationProperties.Name="Activer le Bass Boost"
+                            Content="Bass Boost" />
+                  <ComboBox Grid.Column="1"
+                            ItemsSource="{Binding Profiles}"
+                            SelectedItem="{Binding SelectedProfile}"
+                            AutomationProperties.Name="Profil de Bass Boost" />
+                </Grid>
+                <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                  <StackPanel>
+                    <Grid Margin="0,0,0,4">
+                      <TextBlock Style="{StaticResource Text.Caption}"
+                                 Text="RENFORCEMENT" />
+                      <TextBlock HorizontalAlignment="Right"
+                                 Foreground="{DynamicResource Brush.Accent}"
+                                 FontFamily="{DynamicResource FontFamily.Numeric}"
+                                 Text="{Binding BassGainText}" />
+                    </Grid>
+                    <Slider Minimum="0"
+                            Maximum="18"
+                            TickFrequency="0.1"
+                            SmallChange="0.1"
+                            LargeChange="1"
+                            Value="{Binding BassGainDb, UpdateSourceTrigger=PropertyChanged}"
+                            AutomationProperties.Name="Renforcement des basses en décibels" />
+                  </StackPanel>
+                  <StackPanel Grid.Row="1" Margin="0,22,0,0">
+                    <Grid Margin="0,0,0,4">
+                      <TextBlock Style="{StaticResource Text.Caption}"
+                                 Text="FRÉQUENCE" />
+                      <TextBlock HorizontalAlignment="Right"
+                                 Foreground="{DynamicResource Brush.TextSecondary}"
+                                 FontFamily="{DynamicResource FontFamily.Numeric}"
+                                 Text="{Binding BassFrequencyText}" />
+                    </Grid>
+                    <Slider Minimum="35"
+                            Maximum="200"
+                            TickFrequency="1"
+                            SmallChange="1"
+                            LargeChange="10"
+                            Value="{Binding BassFrequencyHz, UpdateSourceTrigger=PropertyChanged}"
+                            AutomationProperties.Name="Fréquence du Bass Boost en hertz" />
+                  </StackPanel>
+                  <StackPanel Grid.Row="2" Margin="0,22,0,0">
+                    <Grid Margin="0,0,0,4">
+                      <TextBlock Style="{StaticResource Text.Caption}"
+                                 Text="PENTE" />
+                      <TextBlock HorizontalAlignment="Right"
+                                 Foreground="{DynamicResource Brush.TextSecondary}"
+                                 FontFamily="{DynamicResource FontFamily.Numeric}"
+                                 Text="{Binding BassSlopeText}" />
+                    </Grid>
+                    <Slider Minimum="0.25"
+                            Maximum="2"
+                            TickFrequency="0.05"
+                            SmallChange="0.05"
+                            LargeChange="0.25"
+                            Value="{Binding BassSlope, UpdateSourceTrigger=PropertyChanged}"
+                            AutomationProperties.Name="Pente du filtre Bass Boost" />
+                  </StackPanel>
+                </Grid>
+              </StackPanel>
+            </Border>
             <!-- Horizontal signal route -->
-            <Border Style="{StaticResource Panel.Flat}"
-                    Margin="0,0,0,14"
+            <Border x:Name="RouteCard" Grid.Row="2" Grid.ColumnSpan="2" Style="{StaticResource Panel.Flat}"
+                    Margin="0,16,0,0"
                     AutomationProperties.Name="Chemin du signal audio">
               <Grid>
                 <Grid.ColumnDefinitions>
@@ -450,240 +663,7 @@
               </Grid>
             </Border>
 
-            <!-- Main instrument surface -->
-            <Border Background="{DynamicResource Brush.Surface}"
-                    BorderBrush="{DynamicResource Brush.Border}"
-                    BorderThickness="1"
-                    CornerRadius="8"
-                    Padding="20"
-                    Margin="0,0,0,14">
-              <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="1.35*" />
-                  <ColumnDefinition Width="1" />
-                  <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-
-                <StackPanel Margin="0,0,22,0">
-                  <TextBlock Style="{StaticResource Text.Caption}"
-                             Text="GAIN PRINCIPAL" />
-                  <StackPanel Orientation="Horizontal"
-                              Margin="0,5,0,8">
-                    <TextBlock Style="{StaticResource Text.DisplayValue}"
-                               AutomationProperties.Name="Gain principal demandé"
-                               Text="{Binding GainDbText}" />
-                    <TextBlock Margin="14,0,0,9"
-                               VerticalAlignment="Bottom"
-                               Foreground="{DynamicResource Brush.Accent}"
-                               FontFamily="{DynamicResource FontFamily.Numeric}"
-                               FontSize="18"
-                               Text="{Binding GainPercentText}"
-                               Visibility="{Binding ShowLinearPercent, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                  </StackPanel>
-                  <Slider Minimum="0"
-                          Maximum="{Binding GainMaximumDb}"
-                          TickFrequency="{Binding GainStepDb}"
-                          SmallChange="{Binding GainStepDb}"
-                          LargeChange="1"
-                          IsSnapToTickEnabled="True"
-                          Value="{Binding MainGainDb, UpdateSourceTrigger=PropertyChanged}"
-                          AutomationProperties.Name="Gain principal en décibels"
-                          AutomationProperties.HelpText="De zéro au maximum autorisé par le mode actif" />
-                  <Grid Margin="8,3,8,0">
-                    <TextBlock Style="{StaticResource Text.Caption}"
-                               Text="0 dB · neutre" />
-                    <TextBlock Style="{StaticResource Text.Caption}"
-                               HorizontalAlignment="Right"
-                               Text="{Binding GainMaximumDb, StringFormat=+{0:0} dB}" />
-                  </Grid>
-                  <Border Style="{StaticResource Banner.Warning}"
-                          Margin="0,15,0,0"
-                          Visibility="{Binding HasSafetyWarning, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <TextBlock Foreground="{DynamicResource Brush.Warning}"
-                               FontSize="12"
-                               Text="{Binding SafetyWarningText}"
-                               TextWrapping="Wrap" />
-                  </Border>
-                </StackPanel>
-
-                <Border Grid.Column="1"
-                        Background="{DynamicResource Brush.Border}" />
-
-                <StackPanel Grid.Column="2"
-                            Margin="22,0,0,0">
-                  <TextBlock Style="{StaticResource Text.Caption}"
-                             Text="MODE DU PIPELINE" />
-                  <ListBox Margin="0,8,0,0"
-                           Padding="0"
-                           Background="{DynamicResource Brush.Transparent}"
-                           BorderThickness="0"
-                           ItemsSource="{Binding ProtectionModes}"
-                           SelectedItem="{Binding ProtectionMode}"
-                           AutomationProperties.Name="Mode de protection audio">
-                    <ListBox.ItemsPanel>
-                      <ItemsPanelTemplate>
-                        <UniformGrid Columns="3" />
-                      </ItemsPanelTemplate>
-                    </ListBox.ItemsPanel>
-                    <ListBox.ItemContainerStyle>
-                      <Style TargetType="ListBoxItem"
-                             BasedOn="{StaticResource {x:Type ListBoxItem}}">
-                        <Setter Property="Margin"
-                                Value="0,0,4,0" />
-                        <Setter Property="HorizontalContentAlignment"
-                                Value="Center" />
-                      </Style>
-                    </ListBox.ItemContainerStyle>
-                    <ListBox.ItemTemplate>
-                      <DataTemplate>
-                        <TextBlock x:Name="ModeName"
-                                   FontSize="12"
-                                   FontWeight="SemiBold"
-                                   Text="{Binding}" />
-                        <DataTemplate.Triggers>
-                          <DataTrigger Binding="{Binding}"
-                                       Value="Protected">
-                            <Setter TargetName="ModeName"
-                                    Property="Text"
-                                    Value="Protégé" />
-                          </DataTrigger>
-                          <DataTrigger Binding="{Binding}"
-                                       Value="Direct">
-                            <Setter TargetName="ModeName"
-                                    Property="Text"
-                                    Value="Direct" />
-                          </DataTrigger>
-                          <DataTrigger Binding="{Binding}"
-                                       Value="RawExpert">
-                            <Setter TargetName="ModeName"
-                                    Property="Text"
-                                    Value="Expert brut" />
-                          </DataTrigger>
-                        </DataTemplate.Triggers>
-                      </DataTemplate>
-                    </ListBox.ItemTemplate>
-                  </ListBox>
-                  <TextBlock Style="{StaticResource Text.Secondary}"
-                             Margin="0,8,0,16"
-                             MinHeight="34"
-                             Text="{Binding ProtectionModeDescription}"
-                             TextWrapping="Wrap" />
-
-                  <Grid Margin="0,0,0,5">
-                    <TextBlock Style="{StaticResource Text.Caption}"
-                               Text="ENTRÉE" />
-                    <TextBlock Style="{StaticResource Text.Metric}"
-                               HorizontalAlignment="Right"
-                               Foreground="{DynamicResource Brush.Info}"
-                               Text="{Binding InputPeakText}" />
-                  </Grid>
-                  <ProgressBar Style="{StaticResource Meter.Input}"
-                               Maximum="100"
-                               Value="{Binding InputLevel, Mode=OneWay}"
-                               AutomationProperties.Name="Niveau d’entrée" />
-                  <Grid Margin="0,12,0,5">
-                    <TextBlock Style="{StaticResource Text.Caption}"
-                               Text="SORTIE" />
-                    <TextBlock Style="{StaticResource Text.Metric}"
-                               HorizontalAlignment="Right"
-                               Foreground="{DynamicResource Brush.Accent}"
-                               Text="{Binding OutputPeakText}" />
-                  </Grid>
-                  <ProgressBar Style="{StaticResource Meter.Output}"
-                               Maximum="100"
-                               Value="{Binding OutputLevel, Mode=OneWay}"
-                               AutomationProperties.Name="Niveau de sortie" />
-                  <Grid Margin="0,12,0,0">
-                    <TextBlock Style="{StaticResource Text.Caption}"
-                               Text="{Binding ClippingStatusText}" />
-                    <TextBlock Style="{StaticResource Text.Caption}"
-                               HorizontalAlignment="Right"
-                               Text="{Binding LimiterStatusText}" />
-                  </Grid>
-                </StackPanel>
-              </Grid>
-            </Border>
-
-            <!-- Bass strip -->
-            <Border Style="{StaticResource Panel.Flat}">
-              <StackPanel>
-                <Grid Margin="0,0,0,12">
-                  <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="210" />
-                  </Grid.ColumnDefinitions>
-                  <CheckBox Style="{StaticResource Setting.Check}"
-                            IsChecked="{Binding BassBoostEnabled}"
-                            AutomationProperties.Name="Activer le Bass Boost"
-                            Content="Bass Boost" />
-                  <ComboBox Grid.Column="1"
-                            ItemsSource="{Binding Profiles}"
-                            SelectedItem="{Binding SelectedProfile}"
-                            AutomationProperties.Name="Profil de Bass Boost" />
-                </Grid>
-                <Grid>
-                  <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="20" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="20" />
-                    <ColumnDefinition Width="*" />
-                  </Grid.ColumnDefinitions>
-                  <StackPanel>
-                    <Grid Margin="0,0,0,4">
-                      <TextBlock Style="{StaticResource Text.Caption}"
-                                 Text="RENFORCEMENT" />
-                      <TextBlock HorizontalAlignment="Right"
-                                 Foreground="{DynamicResource Brush.Accent}"
-                                 FontFamily="{DynamicResource FontFamily.Numeric}"
-                                 Text="{Binding BassGainText}" />
-                    </Grid>
-                    <Slider Minimum="0"
-                            Maximum="18"
-                            TickFrequency="0.1"
-                            SmallChange="0.1"
-                            LargeChange="1"
-                            Value="{Binding BassGainDb, UpdateSourceTrigger=PropertyChanged}"
-                            AutomationProperties.Name="Renforcement des basses en décibels" />
-                  </StackPanel>
-                  <StackPanel Grid.Column="2">
-                    <Grid Margin="0,0,0,4">
-                      <TextBlock Style="{StaticResource Text.Caption}"
-                                 Text="FRÉQUENCE" />
-                      <TextBlock HorizontalAlignment="Right"
-                                 Foreground="{DynamicResource Brush.TextSecondary}"
-                                 FontFamily="{DynamicResource FontFamily.Numeric}"
-                                 Text="{Binding BassFrequencyText}" />
-                    </Grid>
-                    <Slider Minimum="35"
-                            Maximum="200"
-                            TickFrequency="1"
-                            SmallChange="1"
-                            LargeChange="10"
-                            Value="{Binding BassFrequencyHz, UpdateSourceTrigger=PropertyChanged}"
-                            AutomationProperties.Name="Fréquence du Bass Boost en hertz" />
-                  </StackPanel>
-                  <StackPanel Grid.Column="4">
-                    <Grid Margin="0,0,0,4">
-                      <TextBlock Style="{StaticResource Text.Caption}"
-                                 Text="PENTE" />
-                      <TextBlock HorizontalAlignment="Right"
-                                 Foreground="{DynamicResource Brush.TextSecondary}"
-                                 FontFamily="{DynamicResource FontFamily.Numeric}"
-                                 Text="{Binding BassSlopeText}" />
-                    </Grid>
-                    <Slider Minimum="0.25"
-                            Maximum="2"
-                            TickFrequency="0.05"
-                            SmallChange="0.05"
-                            LargeChange="0.25"
-                            Value="{Binding BassSlope, UpdateSourceTrigger=PropertyChanged}"
-                            AutomationProperties.Name="Pente du filtre Bass Boost" />
-                  </StackPanel>
-                </Grid>
-              </StackPanel>
-            </Border>
-          </StackPanel>
+          </Grid>
         </ScrollViewer>
 
         <!-- Seven-step setup -->
@@ -1256,6 +1236,18 @@
                        Margin="0,3,0,14"
                        Text="Les changements audio sont publiés immédiatement. Les préférences de démarrage et d’interface sont sauvegardées localement." />
 
+
+            <Border Style="{StaticResource Card}" Margin="0,0,0,20" DataContext="{Binding Updates}">
+              <StackPanel>
+                <TextBlock Text="Mises à jour" Style="{StaticResource Text.Section}"/>
+                <TextBlock Text="{Binding CurrentVersion, StringFormat=Version installée : {0}}" Style="{StaticResource Text.Caption}" Margin="0,8,0,0"/>
+                <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Margin="0,8,0,12" AutomationProperties.LiveSetting="Polite"/>
+                <WrapPanel>
+                  <Button Command="{Binding CheckCommand}" Content="Vérifier les mises à jour" Style="{StaticResource Button.Secondary}" Margin="0,0,10,6"/>
+                  <Button Command="{Binding InstallCommand}" Content="Installer" Style="{StaticResource Button.Primary}" Margin="0,0,0,6"/>
+                </WrapPanel>
+              </StackPanel>
+            </Border>
             <Border Style="{StaticResource Setting.Group}">
               <StackPanel>
                 <TextBlock Style="{StaticResource Text.Section}"
@@ -1844,7 +1836,7 @@
       </Grid>
 
       <!-- Persistent transport / panic strip -->
-      <Border Grid.Row="4"
+      <Border Grid.Row="4" Grid.ColumnSpan="2"
               Background="{DynamicResource Brush.Rail}"
               BorderBrush="{DynamicResource Brush.Border}"
               BorderThickness="0,1,0,0"
@@ -1880,7 +1872,7 @@
       </Border>
 
       <!-- Expert confirmation overlay -->
-      <Grid Grid.RowSpan="5"
+      <Grid Grid.RowSpan="5" Grid.ColumnSpan="2"
             Panel.ZIndex="100"
             Background="{DynamicResource Brush.Transparent}"
             Visibility="{Binding ExpertConfirmationVisible, Converter={StaticResource BooleanToVisibilityConverter}}"

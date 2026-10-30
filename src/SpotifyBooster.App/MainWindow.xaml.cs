@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Controls;
 using SpotifyBooster.App.ViewModels;
 using SpotifyBooster.Core.Configuration;
 
@@ -17,9 +18,31 @@ public partial class MainWindow : Window
     {
         this.viewModel = viewModel;
         InitializeComponent();
+        Width = Math.Min(Width, SystemParameters.WorkArea.Width);
+        Height = Math.Min(Height, SystemParameters.WorkArea.Height);
         DataContext = viewModel;
         Loaded += OnLoaded;
         Closing += OnClosing;
+        SizeChanged += (_, _) => UpdateDashboardLayout();
+    }
+
+    private void UpdateDashboardLayout()
+    {
+        bool compact = ActualWidth < 1180;
+        DashboardLayout.ColumnDefinitions[1].Width = compact
+            ? new GridLength(0)
+            : new GridLength(1, GridUnitType.Star);
+        DashboardLayout.ColumnDefinitions[0].Width = new GridLength(1.7, GridUnitType.Star);
+        Grid.SetRow(EqualizerCard, compact ? 1 : 0);
+        Grid.SetColumn(EqualizerCard, compact ? 0 : 1);
+        Grid.SetRow(GainCard, compact ? 2 : 1);
+        Grid.SetRow(BassCard, compact ? 3 : 1);
+        Grid.SetColumn(BassCard, compact ? 0 : 1);
+        Grid.SetRow(RouteCard, compact ? 4 : 2);
+        Grid.SetColumnSpan(RouteCard, compact ? 1 : 2);
+        DashboardHero.Margin = new Thickness(0, 0, compact ? 0 : 16, 0);
+        EqualizerCard.Margin = new Thickness(0, compact ? 16 : 0, 0, 0);
+        GainCard.Margin = new Thickness(0, 16, compact ? 0 : 16, 0);
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs eventArgs)

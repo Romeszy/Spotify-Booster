@@ -2,7 +2,7 @@
 
 ## Surface implémentée
 
-La version applicative et les scripts de release utilisent `0.2.1` pour `win-x64`.
+La version applicative et les scripts de release utilisent `0.2.2` pour `win-x64`.
 
 | Fichier | Rôle |
 |---|---|

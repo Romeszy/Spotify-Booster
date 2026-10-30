@@ -14,6 +14,17 @@ Ce document est la source de vérité de l’itération Desktop V2 pour les déc
 - `src/SpotifyBooster.App/MainWindow.xaml`
 - `src/SpotifyBooster.App/ViewModels/MainViewModel.cs`
 
+## Actualisation visuelle — 30 octobre 2026
+
+La référence validée par l’utilisateur est `design/reference_appli.png`. La refonte conserve les quatre destinations et les commandes audio existantes. Le tableau de bord adopte un rail latéral, des surfaces noires en relief, un accent vert, un cadran de gain gradué animé et l’égaliseur trois bandes directement accessible.
+
+- Le cadran est un indicateur du gain réel en dB ; le curseur natif conserve le contrôle souris/clavier et les limites du mode actif.
+- Le relief utilise des gradients et des ombres WPF, sans moteur 3D ni dépendance supplémentaire.
+- Les animations sont brèves (160–240 ms), sans boucle permanente et respectent la préférence Windows de réduction des animations.
+- Sous 1180 unités WPF, les cartes passent en une colonne défilante. La taille minimale historique de 880 × 620 est conservée.
+- Les niveaux sont issus du moteur audio. La référence n’ajoute pas de lecteur musical, de métadonnées de morceau ou de spectre fictif.
+- Réglages expose les mises à jour via le service développé par l’agent 1.
+
 Les choix ci-dessous reposent sur le cahier des charges V2 fourni le 28 juillet 2026 et sur l’audit de la V1 au commit `ab2923cf44756be7b8446d67e6cbe15123cee3d2`.
 
 Hypothèses explicites :

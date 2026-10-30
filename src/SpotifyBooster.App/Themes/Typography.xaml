@@ -26,8 +26,6 @@
   </Style>
 
   <Style TargetType="TextBlock">
-    <Setter Property="Foreground"
-            Value="{DynamicResource Brush.TextPrimary}" />
     <Setter Property="FontFamily"
             Value="{DynamicResource FontFamily.Ui}" />
     <Setter Property="FontSize"

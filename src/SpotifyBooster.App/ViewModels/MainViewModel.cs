@@ -111,8 +111,10 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         IStartupService startupService,
         IErrorSink errorSink,
         ApplicationState applicationState,
-        ILogger<MainViewModel> logger)
+        ILogger<MainViewModel> logger,
+        UpdatesViewModel updates)
     {
+        Updates = updates;
         this.deviceService = deviceService;
         this.audioEngine = audioEngine;
         this.settingsService = settingsService;
@@ -240,6 +242,8 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
     public AsyncRelayCommand ExportDiagnosticCommand { get; }
 
     public RelayCommand DismissNotificationCommand { get; }
+
+    public UpdatesViewModel Updates { get; }
 
     public AppSettings CurrentSettings => settings;
 

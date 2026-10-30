@@ -14,6 +14,7 @@ using SpotifyBooster.Infrastructure.Logging;
 using SpotifyBooster.Infrastructure.Persistence;
 using SpotifyBooster.Infrastructure.Storage;
 using SpotifyBooster.Infrastructure.Windows;
+using SpotifyBooster.Infrastructure.Updates;
 
 namespace SpotifyBooster.App;
 
@@ -71,6 +72,8 @@ public partial class App : Application
             collection.AddSingleton<TrayIconService>();
             collection.AddSingleton<GlobalHotkeyService>();
             collection.AddSingleton<MainViewModel>();
+            collection.AddSingleton<GitHubUpdateService>();
+            collection.AddSingleton<UpdatesViewModel>();
             collection.AddSingleton<MainWindow>();
 
             services = collection.BuildServiceProvider(

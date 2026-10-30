@@ -4,7 +4,7 @@ param(
     [string]$Configuration = "Release",
     [switch]$NoRestore,
     [ValidatePattern("^\d+\.\d+\.\d+$")]
-    [string]$Version = "0.2.1",
+    [string]$Version = "0.2.2",
     [string]$InformationalVersion = $Version
 )
 
